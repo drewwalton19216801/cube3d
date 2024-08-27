@@ -4,13 +4,13 @@ use std::{thread, f32::consts::PI};
 use crossterm::{
     execute,
     style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{Clear, ClearType},
+    terminal::{Clear, ClearType, size},
     cursor::MoveTo,
 };
-use termsize;
 
 const DISTANCE: f32 = 50.0;
 const ANGLE_INCREMENT: f32 = 0.05;
+const MIN_CUBE_SIZE: f32 = 4.0;
 
 struct Point3D {
     x: f32,
@@ -30,9 +30,16 @@ fn main() -> Result<()> {
 
     loop {
         let (width, height) = get_terminal_size();
+        if width < 10 || height < 10 {
+            execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
+            stdout.flush()?;
+            thread::sleep(Duration::from_millis(100));
+            continue;
+        }
+
         let center_x = width as i32 / 2;
         let center_y = height as i32 / 2;
-        let cube_size = (width.min(height) as f32 * 0.4).max(10.0); // Use 40% of the smaller dimension, with a minimum size of 10
+        let cube_size = (width.min(height) as f32 * 0.4).max(MIN_CUBE_SIZE);
 
         execute!(stdout, Clear(ClearType::All))?;
 
@@ -40,14 +47,14 @@ fn main() -> Result<()> {
         let rotated_cube = rotate_cube(&cube, angle_x, angle_y);
         let projected_cube = project_cube(&rotated_cube, center_x, center_y);
 
-        draw_cube(&mut stdout, &projected_cube)?;
+        draw_cube(&mut stdout, &projected_cube, width, height)?;
 
         execute!(stdout, MoveTo(0, 0), Print("Press Ctrl+C to exit"))?;
         stdout.flush()?;
 
         thread::sleep(Duration::from_millis(50));
         angle_x += ANGLE_INCREMENT;
-        angle_y += ANGLE_INCREMENT * 0.7; // Rotate Y axis slightly slower for visual interest
+        angle_y += ANGLE_INCREMENT * 0.7;
         if angle_x >= 2.0 * PI {
             angle_x -= 2.0 * PI;
         }
@@ -58,9 +65,7 @@ fn main() -> Result<()> {
 }
 
 fn get_terminal_size() -> (u16, u16) {
-    termsize::get()
-        .map(|size| (size.cols, size.rows))
-        .unwrap_or((80, 24))
+    size().unwrap_or((80, 24))
 }
 
 fn create_cube(size: f32) -> Vec<Point3D> {
@@ -102,7 +107,7 @@ fn project_cube(cube: &[Point3D], center_x: i32, center_y: i32) -> Vec<Point2D> 
         .collect()
 }
 
-fn draw_cube(stdout: &mut std::io::Stdout, cube: &[Point2D]) -> Result<()> {
+fn draw_cube(stdout: &mut std::io::Stdout, cube: &[Point2D], width: u16, height: u16) -> Result<()> {
     let edges = [
         (0, 1), (1, 2), (2, 3), (3, 0),
         (4, 5), (5, 6), (6, 7), (7, 4),
@@ -110,13 +115,13 @@ fn draw_cube(stdout: &mut std::io::Stdout, cube: &[Point2D]) -> Result<()> {
     ];
 
     for (start, end) in edges.iter() {
-        draw_line(stdout, &cube[*start], &cube[*end])?;
+        draw_line(stdout, &cube[*start], &cube[*end], width, height)?;
     }
 
     Ok(())
 }
 
-fn draw_line(stdout: &mut std::io::Stdout, start: &Point2D, end: &Point2D) -> Result<()> {
+fn draw_line(stdout: &mut std::io::Stdout, start: &Point2D, end: &Point2D, width: u16, height: u16) -> Result<()> {
     let dx = (end.x - start.x).abs();
     let dy = (end.y - start.y).abs();
     let sx = if start.x < end.x { 1 } else { -1 };
@@ -127,13 +132,15 @@ fn draw_line(stdout: &mut std::io::Stdout, start: &Point2D, end: &Point2D) -> Re
     let mut y = start.y;
 
     loop {
-        execute!(
-            stdout,
-            MoveTo(x as u16, y as u16),
-            SetForegroundColor(Color::Green),
-            Print("*"),
-            ResetColor
-        )?;
+        if x >= 0 && y >= 0 && x < width as i32 && y < height as i32 {
+            execute!(
+                stdout,
+                MoveTo(x as u16, y as u16),
+                SetForegroundColor(Color::Green),
+                Print("*"),
+                ResetColor
+            )?;
+        }
 
         if x == end.x && y == end.y {
             break;
