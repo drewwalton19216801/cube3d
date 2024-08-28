@@ -126,38 +126,66 @@ fn project_cube(cube: &[Point3D], center_x: i32, center_y: i32) -> Vec<Point2D> 
         .collect()
 }
 
+
 fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Point3D], faces: &[Face], width: u16, height: u16) -> Result<()> {
-    let light_direction = Point3D { x: 1.0, y: -1.0, z: -1.0 };
-    let normalized_light = normalize(&light_direction);
+    let light_direction = normalize(&Point3D { x: -1.0, y: -1.0, z: -1.0 });
+    
+    let mut face_depths: Vec<(usize, f32)> = faces.iter().enumerate()
+        .map(|(i, face)| {
+            let center = face_center(rotated, &face.vertices);
+            (i, center.z)
+        })
+        .collect();
+    
+    face_depths.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
-    for face in faces {
-        let face_normal = rotate_normal(rotated[face.vertices[0]], rotated[face.vertices[2]]);
-        let shade = dot_product(&face_normal, &normalized_light);
+    for (face_index, _) in face_depths {
+        let face = &faces[face_index];
+        let rotated_normal = rotate_vector(&face.normal, rotated[face.vertices[0]], rotated[face.vertices[1]]);
+        let shade = dot_product(&rotated_normal, &light_direction).max(0.1);
 
-        if shade > 0.0 {
-            let shade_char = get_shade_char(shade);
-            let color = get_shade_color(shade);
+        let shade_char = get_shade_char(shade);
+        let color = get_shade_color(shade);
 
-            fill_face(stdout, projected, &face.vertices, shade_char, color, width, height)?;
-        }
+        fill_face(stdout, projected, &face.vertices, shade_char, color, width, height)?;
     }
 
     Ok(())
 }
 
-fn rotate_normal(v1: Point3D, v2: Point3D) -> Point3D {
-    let edge1 = Point3D {
-        x: v2.x - v1.x,
-        y: v2.y - v1.y,
-        z: v2.z - v1.z,
-    };
-    let edge2 = Point3D {
-        x: v2.x - v1.x,
-        y: v2.y - v1.y,
-        z: v1.z - v2.z,
-    };
-    let rotated_normal = cross_product(&edge1, &edge2);
-    normalize(&rotated_normal)
+fn rotate_vector(v: &Point3D, p1: Point3D, p2: Point3D) -> Point3D {
+    let axis = normalize(&Point3D {
+        x: p2.x - p1.x,
+        y: p2.y - p1.y,
+        z: p2.z - p1.z,
+    });
+    
+    let cos_theta = dot_product(v, &axis);
+    let sin_theta = (1.0 - cos_theta * cos_theta).sqrt();
+
+    let u = cross_product(v, &axis);
+    let w = cross_product(&axis, &u);
+
+    Point3D {
+        x: cos_theta * v.x + sin_theta * w.x,
+        y: cos_theta * v.y + sin_theta * w.y,
+        z: cos_theta * v.z + sin_theta * w.z,
+    }
+}
+
+fn face_center(points: &[Point3D], vertices: &[usize]) -> Point3D {
+    let mut center = Point3D { x: 0.0, y: 0.0, z: 0.0 };
+    for &i in vertices {
+        center.x += points[i].x;
+        center.y += points[i].y;
+        center.z += points[i].z;
+    }
+    let len = vertices.len() as f32;
+    Point3D {
+        x: center.x / len,
+        y: center.y / len,
+        z: center.z / len,
+    }
 }
 
 fn normalize(v: &Point3D) -> Point3D {
@@ -182,9 +210,9 @@ fn cross_product(a: &Point3D, b: &Point3D) -> Point3D {
 }
 
 fn get_shade_char(shade: f32) -> char {
-    let shade_chars = ['█', '▓', '▒', '░', ' '];
-    let index = ((1.0 - shade) * (shade_chars.len() - 1) as f32).round() as usize;
-    shade_chars[index.min(shade_chars.len() - 1)]
+    let shade_chars = ['░', '▒', '▓', '█'];
+    let index = ((shade * (shade_chars.len() - 1) as f32).round() as usize).min(shade_chars.len() - 1);
+    shade_chars[index]
 }
 
 fn get_shade_color(shade: f32) -> Color {
