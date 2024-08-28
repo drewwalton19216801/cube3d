@@ -30,6 +30,13 @@ struct Face {
     normal: Point3D,
 }
 
+#[derive(Clone, Copy)]
+struct Pixel {
+    shade_char: char,
+    color: Color,
+    depth: f32,
+}
+
 fn main() -> Result<()> {
     let mut stdout = stdout();
     let mut angle_x = 0.0;
@@ -55,7 +62,13 @@ fn main() -> Result<()> {
         let rotated_cube = rotate_cube(&cube, angle_x, angle_y);
         let projected_cube = project_cube(&rotated_cube, center_x, center_y);
 
-        draw_cube(&mut stdout, &projected_cube, &rotated_cube, &faces, width, height)?;
+        // Create a buffer to store pixel information
+        let mut buffer = vec![vec![None; width as usize]; height as usize];
+
+        draw_cube(&mut buffer, &projected_cube, &rotated_cube, &faces, width, height)?;
+
+        // Render the buffer to the screen
+        render_buffer(&mut stdout, &buffer)?;
 
         execute!(stdout, MoveTo(0, 0), Print("Press Ctrl+C to exit"))?;
         stdout.flush()?;
@@ -126,17 +139,16 @@ fn project_cube(cube: &[Point3D], center_x: i32, center_y: i32) -> Vec<Point2D> 
         .collect()
 }
 
-
-fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Point3D], faces: &[Face], width: u16, height: u16) -> Result<()> {
+fn draw_cube(buffer: &mut Vec<Vec<Option<Pixel>>>, projected: &[Point2D], rotated: &[Point3D], faces: &[Face], width: u16, height: u16) -> Result<()> {
     let light_direction = normalize(&Point3D { x: -1.0, y: -1.0, z: -1.0 });
-    
+
     let mut face_depths: Vec<(usize, f32)> = faces.iter().enumerate()
         .map(|(i, face)| {
             let center = face_center(rotated, &face.vertices);
             (i, center.z)
         })
         .collect();
-    
+
     face_depths.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
     for (face_index, _) in face_depths {
@@ -147,10 +159,79 @@ fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Poi
         let shade_char = get_shade_char(shade);
         let color = get_shade_color(shade);
 
-        fill_face(stdout, projected, &face.vertices, shade_char, color, width, height)?;
+        fill_face(buffer, projected, rotated, &face.vertices, shade_char, color, width, height)?;
     }
 
     Ok(())
+}
+
+fn fill_face(buffer: &mut Vec<Vec<Option<Pixel>>>, projected: &[Point2D], rotated: &[Point3D], vertices: &[usize], shade_char: char, color: Color, width: u16, height: u16) -> Result<()> {
+    let points: Vec<Point2D> = vertices.iter().map(|&i| projected[i]).collect();
+    let points_with_wrap: Vec<Point2D> = points.iter().chain(points.first()).cloned().collect();
+
+    for y in 0..height {
+        let mut intersections = Vec::new();
+        for window in points_with_wrap.windows(2) {
+            if let Some(x) = edge_intersect(window[0], window[1], y) {
+                intersections.push(x);
+            }
+        }
+        intersections.sort_unstable();
+
+        for chunk in intersections.chunks(2) {
+            if chunk.len() == 2 {
+                let start = chunk[0].max(0).min(width as i32 - 1) as u16;
+                let end = chunk[1].max(0).min(width as i32 - 1) as u16;
+                for x in start..=end {
+                    let depth = interpolate_depth(x as i32, y as i32, projected, rotated, vertices);
+                    let pixel = Pixel { shade_char, color, depth };
+                    
+                    if let Some(existing_pixel) = &buffer[y as usize][x as usize] {
+                        if pixel.depth < existing_pixel.depth {
+                            buffer[y as usize][x as usize] = Some(pixel);
+                        }
+                    } else {
+                        buffer[y as usize][x as usize] = Some(pixel);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn render_buffer(stdout: &mut std::io::Stdout, buffer: &Vec<Vec<Option<Pixel>>>) -> Result<()> {
+    for (y, row) in buffer.iter().enumerate() {
+        for (x, pixel) in row.iter().enumerate() {
+            if let Some(pixel) = pixel {
+                execute!(
+                    stdout,
+                    MoveTo(x as u16, y as u16),
+                    SetForegroundColor(pixel.color),
+                    Print(pixel.shade_char),
+                    ResetColor
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn interpolate_depth(x: i32, y: i32, projected: &[Point2D], rotated: &[Point3D], vertices: &[usize]) -> f32 {
+    let mut total_weight = 0.0;
+    let mut weighted_depth = 0.0;
+
+    for &v in vertices {
+        let dx = (projected[v].x - x) as f32;
+        let dy = (projected[v].y - y) as f32;
+        let distance = (dx * dx + dy * dy).sqrt();
+        let weight = if distance < 0.01 { 1.0 } else { 1.0 / distance };
+        total_weight += weight;
+        weighted_depth += rotated[v].z * weight;
+    }
+
+    weighted_depth / total_weight
 }
 
 fn rotate_vector(v: &Point3D, p1: Point3D, p2: Point3D) -> Point3D {
@@ -218,39 +299,6 @@ fn get_shade_char(shade: f32) -> char {
 fn get_shade_color(shade: f32) -> Color {
     let intensity = (shade * 255.0) as u8;
     Color::Rgb { r: intensity, g: intensity, b: intensity }
-}
-
-fn fill_face(stdout: &mut std::io::Stdout, projected: &[Point2D], vertices: &[usize], shade_char: char, color: Color, width: u16, height: u16) -> Result<()> {
-    let points: Vec<Point2D> = vertices.iter().map(|&i| projected[i]).collect();
-    let points_with_wrap: Vec<Point2D> = points.iter().chain(points.first()).cloned().collect();
-
-    for y in 0..height {
-        let mut intersections = Vec::new();
-        for window in points_with_wrap.windows(2) {
-            if let Some(x) = edge_intersect(window[0], window[1], y) {
-                intersections.push(x);
-            }
-        }
-        intersections.sort_unstable();
-
-        for chunk in intersections.chunks(2) {
-            if chunk.len() == 2 {
-                let start = chunk[0].max(0).min(width as i32 - 1) as u16;
-                let end = chunk[1].max(0).min(width as i32 - 1) as u16;
-                for x in start..=end {
-                    execute!(
-                        stdout,
-                        MoveTo(x, y),
-                        SetForegroundColor(color),
-                        Print(shade_char),
-                        ResetColor
-                    )?;
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn edge_intersect(p1: Point2D, p2: Point2D, y: u16) -> Option<i32> {
