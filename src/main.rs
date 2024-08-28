@@ -13,6 +13,8 @@ const ANGLE_INCREMENT: f32 = 0.05;
 const MIN_CUBE_SIZE: f32 = 4.0;
 const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
 const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
+const RESIZE_COOLDOWN: Duration = Duration::from_millis(100);
+const WIREFRAME_DURATION: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy)]
 struct Point3D {
@@ -37,6 +39,8 @@ fn main() -> Result<()> {
     let mut angle_x = 0.0;
     let mut angle_y = 0.0;
     let mut last_frame = Instant::now();
+    let mut last_size = (0, 0);
+    let mut last_resize = Instant::now() - WIREFRAME_DURATION - Duration::from_secs(1); // Initialize to past
 
     // Normalize the light direction
     let light_direction = normalize(&LIGHT_DIRECTION);
@@ -44,9 +48,17 @@ fn main() -> Result<()> {
     loop {
         let now = Instant::now();
         let elapsed = now.duration_since(last_frame);
+        let (width, height) = get_terminal_size();
 
-        if elapsed >= FRAME_DURATION {
-            let (width, height) = get_terminal_size();
+        // Check if terminal size has changed
+        let resized = (width, height) != last_size;
+        if resized {
+            last_resize = now;
+            last_size = (width, height);
+        }
+
+        // Only render if enough time has passed since last frame and we're not actively resizing
+        if elapsed >= FRAME_DURATION && now.duration_since(last_resize) > RESIZE_COOLDOWN {
             if width < 10 || height < 10 {
                 execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
                 stdout.flush()?;
@@ -64,7 +76,13 @@ fn main() -> Result<()> {
             let projected_cube = project_cube(&rotated_cube, center_x, center_y);
 
             execute!(stdout, Clear(ClearType::All))?;
-            draw_cube(&mut stdout, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
+            
+            // Use a simpler rendering method if we recently resized
+            if now.duration_since(last_resize) < WIREFRAME_DURATION {
+                draw_cube_wireframe(&mut stdout, &projected_cube, width, height)?;
+            } else {
+                draw_cube(&mut stdout, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
+            }
 
             execute!(stdout, MoveTo(0, 0), Print("Press Ctrl+C to exit"))?;
             stdout.flush()?;
@@ -80,7 +98,7 @@ fn main() -> Result<()> {
 
             last_frame = now;
         } else {
-            std::thread::sleep(FRAME_DURATION - elapsed);
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 }
@@ -158,6 +176,53 @@ fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Poi
         let color = get_shade_color(shade);
 
         fill_face(stdout, projected, &face.vertices, shade_char, color, width, height)?;
+    }
+
+    Ok(())
+}
+
+fn draw_cube_wireframe(stdout: &mut std::io::Stdout, projected: &[Point2D], width: u16, height: u16) -> Result<()> {
+    let edges = [
+        (0, 1), (1, 2), (2, 3), (3, 0),  // Front face
+        (4, 5), (5, 6), (6, 7), (7, 4),  // Back face
+        (0, 4), (1, 5), (2, 6), (3, 7),  // Connecting edges
+    ];
+
+    for &(start, end) in &edges {
+        draw_line(stdout, projected[start], projected[end], width, height)?;
+    }
+
+    Ok(())
+}
+
+fn draw_line(stdout: &mut std::io::Stdout, start: Point2D, end: Point2D, width: u16, height: u16) -> Result<()> {
+    let dx = (end.x - start.x).abs();
+    let dy = -(end.y - start.y).abs();
+    let sx = if start.x < end.x { 1 } else { -1 };
+    let sy = if start.y < end.y { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    let mut x = start.x;
+    let mut y = start.y;
+
+    loop {
+        if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
+            execute!(stdout, MoveTo(x as u16, y as u16), Print("*"))?;
+        }
+
+        if x == end.x && y == end.y {
+            break;
+        }
+
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
     }
 
     Ok(())
