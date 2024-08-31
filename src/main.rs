@@ -1,38 +1,26 @@
-//! # 3D Cube Renderer
-//! 
-//! This program renders a rotating 3D cube in the terminal using ASCII characters.
-//! It employs basic 3D graphics techniques such as rotation, projection, and simple lighting.
-//!
-//! ## Features
-//! - Renders a 3D cube that rotates continuously
-//! - Adjusts to terminal window size changes
-//! - Implements basic lighting for a more realistic appearance
-//! - Falls back to wireframe rendering during rapid resizing for performance
-//!
-//! ## Dependencies
-//! - `crossterm` for terminal manipulation and drawing
-//! - Standard Rust libraries for timing and mathematical operations
-
-use std::io::{stdout, Write, Result};
+use std::error::Error;
+use std::f32::consts::PI;
+use std::io;
 use std::time::{Duration, Instant};
-use std::{thread, f32::consts::PI};
+
 use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{Clear, ClearType, size},
-    cursor::MoveTo,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{
+    backend::Backend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+    Frame, Terminal,
 };
 
-/// Constants for cube rendering and animation
-const DISTANCE: f32 = 50.0;
+const DISTANCE: f32 = 5.0;
 const ANGLE_INCREMENT: f32 = 0.05;
-const MIN_CUBE_SIZE: f32 = 4.0;
-const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
-const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
-const RESIZE_COOLDOWN: Duration = Duration::from_millis(100);
-const WIREFRAME_DURATION: Duration = Duration::from_millis(500);
+const CUBE_SIZE: f32 = 2.0;
 
-/// Represents a point in 3D space
 #[derive(Clone, Copy)]
 struct Point3D {
     x: f32,
@@ -40,106 +28,123 @@ struct Point3D {
     z: f32,
 }
 
-/// Represents a point in 2D space (projected on the terminal)
 #[derive(Clone, Copy)]
 struct Point2D {
-    x: i32,
-    y: i32,
+    x: f32,
+    y: f32,
 }
 
-/// Represents a face of the cube
 struct Face {
     vertices: [usize; 4],
-    normal: Point3D,
 }
 
+struct App {
+    cube: Vec<Point3D>,
+    faces: Vec<Face>,
+    angle_x: f32,
+    angle_y: f32,
+}
 
-/// Main function that sets up and runs the cube rendering loop
-///
-/// This function is the entry point of the program. It initializes the terminal, creates the cube and faces,
-/// and starts the main loop that updates and renders the cube.
-///
-/// The main loop of the program is an infinite loop that sleeps for a short duration when not rendering a frame,
-/// and renders a frame if enough time has passed and the terminal hasn't been resized recently.
-///
-/// If the terminal has been resized recently, the loop renders the cube in wireframe mode.
-///
-/// Otherwise, it renders the cube with shading.
-fn main() -> Result<()> {
-    let mut stdout = stdout();
-    let mut angle_x = 0.0;
-    let mut angle_y = 0.0;
-    let mut last_frame = Instant::now();
-    let mut last_size = (0, 0);
-    let mut last_resize = Instant::now() - WIREFRAME_DURATION - Duration::from_secs(1); // Initialize to past
-
-    let light_direction = normalize(&LIGHT_DIRECTION);
-
-    loop {
-        let now = Instant::now();
-        let elapsed = now.duration_since(last_frame);
-        let (width, height) = get_terminal_size();
-
-        // Handle terminal resizing
-        let resized = (width, height) != last_size;
-        if resized {
-            last_resize = now;
-            last_size = (width, height);
+impl App {
+    fn new() -> Self {
+        let cube = create_cube(CUBE_SIZE);
+        let faces = create_faces();
+        Self {
+            cube,
+            faces,
+            angle_x: 0.0,
+            angle_y: 0.0,
         }
+    }
 
-        // Render frame if enough time has passed and not actively resizing
-        if elapsed >= FRAME_DURATION && now.duration_since(last_resize) > RESIZE_COOLDOWN {
-            if width < 10 || height < 10 {
-                execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
-                stdout.flush()?;
-                thread::sleep(Duration::from_millis(100));
-                continue;
-            }
-
-            let center_x = width as i32 / 2;
-            let center_y = height as i32 / 2;
-            let cube_size = (width.min(height) as f32 * 0.4).max(MIN_CUBE_SIZE);
-
-            let cube = create_cube(cube_size);
-            let faces = create_faces();
-            let rotated_cube = rotate_cube(&cube, angle_x, angle_y);
-            let projected_cube = project_cube(&rotated_cube, center_x, center_y);
-
-            execute!(stdout, Clear(ClearType::All))?;
-            
-            // Use wireframe rendering if recently resized
-            if now.duration_since(last_resize) < WIREFRAME_DURATION {
-                draw_cube_wireframe(&mut stdout, &projected_cube, width, height)?;
-            } else {
-                draw_cube(&mut stdout, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
-            }
-
-            execute!(stdout, MoveTo(0, 0), Print("Press Ctrl+C to exit"))?;
-            stdout.flush()?;
-
-            // Update rotation angles
-            angle_x += ANGLE_INCREMENT;
-            angle_y += ANGLE_INCREMENT * 0.7; // Rotate around X-axis more slowly for 3D effect
-            if angle_x >= 2.0 * PI {
-                angle_x -= 2.0 * PI;
-            }
-            if angle_y >= 2.0 * PI {
-                angle_y -= 2.0 * PI;
-            }
-
-            last_frame = now;
-        } else {
-            std::thread::sleep(Duration::from_millis(5));
+    fn on_tick(&mut self) {
+        self.angle_x += ANGLE_INCREMENT;
+        self.angle_y += ANGLE_INCREMENT * 0.7;
+        if self.angle_x >= 2.0 * PI {
+            self.angle_x -= 2.0 * PI;
+        }
+        if self.angle_y >= 2.0 * PI {
+            self.angle_y -= 2.0 * PI;
         }
     }
 }
 
-/// Returns the current terminal size
-fn get_terminal_size() -> (u16, u16) {
-    size().unwrap_or((80, 24))
+fn main() -> Result<(), Box<dyn Error>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = ratatui::backend::CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let tick_rate = Duration::from_millis(33);
+    let app = App::new();
+    let res = run_app(&mut terminal, app, tick_rate);
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    if let Err(err) = res {
+        println!("{:?}", err)
+    }
+
+    Ok(())
 }
 
-/// Creates the initial cube vertices
+fn run_app<B: Backend>(
+    terminal: &mut Terminal<B>,
+    mut app: App,
+    tick_rate: Duration,
+) -> io::Result<()> {
+    let mut last_tick = Instant::now();
+    loop {
+        terminal.draw(|f| ui::<B>(f, &app))?;
+
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
+        if crossterm::event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if let KeyCode::Char('q') = key.code {
+                    return Ok(());
+                }
+            }
+        }
+        if last_tick.elapsed() >= tick_rate {
+            app.on_tick();
+            last_tick = Instant::now();
+        }
+    }
+}
+
+fn ui<B: Backend>(f: &mut Frame, app: &App) {
+    let size = f.area();
+
+    let block = Block::default()
+        .title("3D Cube")
+        .borders(Borders::ALL);
+    f.render_widget(block, size);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(100)].as_ref())
+        .split(size);
+
+    let rotated_cube = rotate_cube(&app.cube, app.angle_x, app.angle_y);
+    let projected_cube = project_cube(&rotated_cube);
+    let render_data = prepare_render_data(&projected_cube, &app.faces, size);
+
+    let cube_render = Paragraph::new(render_data)
+        .style(Style::default().fg(Color::White))
+        .block(Block::default());
+
+    f.render_widget(cube_render, chunks[0]);
+}
+
 fn create_cube(size: f32) -> Vec<Point3D> {
     vec![
         Point3D { x: -size/2.0, y: -size/2.0, z: -size/2.0 },
@@ -153,423 +158,105 @@ fn create_cube(size: f32) -> Vec<Point3D> {
     ]
 }
 
-/// Creates the faces of the cube
 fn create_faces() -> Vec<Face> {
     vec![
-        Face { vertices: [0, 1, 2, 3], normal: Point3D { x: 0.0, y: 0.0, z: -1.0 } }, // Front
-        Face { vertices: [5, 4, 7, 6], normal: Point3D { x: 0.0, y: 0.0, z: 1.0 } },  // Back
-        Face { vertices: [1, 5, 6, 2], normal: Point3D { x: 1.0, y: 0.0, z: 0.0 } },  // Right
-        Face { vertices: [4, 0, 3, 7], normal: Point3D { x: -1.0, y: 0.0, z: 0.0 } }, // Left
-        Face { vertices: [3, 2, 6, 7], normal: Point3D { x: 0.0, y: 1.0, z: 0.0 } },  // Top
-        Face { vertices: [1, 0, 4, 5], normal: Point3D { x: 0.0, y: -1.0, z: 0.0 } }, // Bottom
+        Face { vertices: [0, 1, 2, 3]}, // Front
+        Face { vertices: [5, 4, 7, 6]},  // Back
+        Face { vertices: [1, 5, 6, 2]},  // Right
+        Face { vertices: [4, 0, 3, 7]}, // Left
+        Face { vertices: [3, 2, 6, 7]},  // Top
+        Face { vertices: [1, 0, 4, 5]}, // Bottom
     ]
 }
 
-/// Creates the faces of the cube
-///
-/// This function takes a 3D point and rotates it around the X and Y axes by
-/// the given angles. The resulting points are then used to create the faces of
-/// the cube.
-///
-/// # Formula
-///
-/// The formula for rotating a 3D point around the X axis is:
-///
-/// y' = y * cos(x) - z * sin(x)
-/// z' = y * sin(x) + z * cos(x)
-///
-/// And the formula for rotating a 3D point around the Y axis is:
-///
-/// x' = x * cos(y) + z * sin(y)
-/// z' = -x * sin(y) + z * cos(y)
-///
-/// # Parameters
-///
-/// * `cube`: The 3D points to rotate
-/// * `angle_x`: The angle of rotation around the X axis (in radians)
-/// * `angle_y`: The angle of rotation around the Y axis (in radians)
-///
-/// # Returns
-///
-/// A vector of 3D points, where each point is the rotated version of the
-/// corresponding point in the input vector.
 fn rotate_cube(cube: &[Point3D], angle_x: f32, angle_y: f32) -> Vec<Point3D> {
     cube.iter()
-        .map(|p| {
-            // Rotate around X-axis
-            let y1 = p.y * angle_x.cos() - p.z * angle_x.sin();
-            let z1 = p.y * angle_x.sin() + p.z * angle_x.cos();
-
-            // Rotate around Y-axis
-            let x2 = p.x * angle_y.cos() + z1 * angle_y.sin();
-            let z2 = -p.x * angle_y.sin() + z1 * angle_y.cos();
-
-            Point3D { x: x2, y: y1, z: z2 }
-        })
+        .map(|p| rotate_point(p, angle_x, angle_y))
         .collect()
 }
 
-/// Projects 3D points onto 2D space, taking into account the distance and center of the projection.
-///
-/// # Formula
-///
-/// The formula is derived from the perspective projection equation. We want to map a point at
-/// coordinate (x, y, z) in 3D space to a point at coordinate (x', y') in 2D space. The
-/// perspective projection equation is:
-///
-/// x' = x * d / (z + d)
-///
-/// y' = y * d / (z + d)
-///
-/// where d is the distance from the camera to the projection plane.
-///
-/// # Parameters
-///
-/// * `cube`: The 3D points to project
-/// * `center_x`: The x-coordinate of the center of the projection
-/// * `center_y`: The y-coordinate of the center of the projection
-///
-/// # Returns
-///
-/// A vector of 2D points, where each point is the projection of the corresponding 3D point in the input vector.
-fn project_cube(cube: &[Point3D], center_x: i32, center_y: i32) -> Vec<Point2D> {
-    cube.iter()
-        .map(|p| {
-            let x = (p.x * DISTANCE / (p.z + DISTANCE)) as i32 + center_x;
-            let y = (p.y * DISTANCE / (p.z + DISTANCE)) as i32 + center_y;
-            Point2D { x, y }
-        })
-        .collect()
-}
-
-/// Draws the cube with shading
-///
-/// This function first calculates the depth of each face in the cube by
-/// taking the average Z-coordinate of its vertices. It then sorts the faces
-/// by their depth, so that the faces in the background are drawn first.
-///
-/// For each face, it calculates the dot product of its normal vector with the
-/// light direction. This gives the angle between the face and the light,
-/// which is used to determine the shade of the face. The shade is then used
-/// to determine the character and color to use when drawing the face.
-///
-/// The `fill_face` function is used to draw each face. It takes the `stdout`
-/// handle, the projected vertices of the cube, the vertices of the face, the
-/// shade character, the shade color, and the width and height of the
-/// terminal.
-fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Point3D], faces: &[Face], light_direction: &Point3D, angle_x: f32, angle_y: f32, width: u16, height: u16) -> Result<()> {
-    let mut face_depths: Vec<(usize, f32)> = faces.iter().enumerate()
-        .map(|(i, face)| {
-            let center = face_center(rotated, &face.vertices);
-            (i, center.z)
-        })
-        .collect();
-
-    // Sort the faces by their depth
-    face_depths.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-    for (face_index, _) in face_depths {
-        let face = &faces[face_index];
-        let rotated_normal = rotate_point(&face.normal, angle_x, angle_y);
-        let shade = dot_product(&rotated_normal, light_direction).max(0.1);
-
-        let shade_char = get_shade_char(shade);
-        let color = get_shade_color(shade);
-
-        // Draw the face
-        fill_face(stdout, projected, &face.vertices, shade_char, color, width, height)?;
-    }
-
-    Ok(())
-}
-
-/// Draws the cube as a wireframe by drawing lines between each pair of connected vertices.
-///
-/// The cube is defined by the `projected` array, which contains the projected coordinates of each vertex.
-/// The `width` and `height` parameters give the size of the terminal window.
-///
-/// The function returns a `Result`, which is an `Err` if drawing the cube fails, and an `Ok` if it succeeds.
-fn draw_cube_wireframe(stdout: &mut std::io::Stdout, projected: &[Point2D], width: u16, height: u16) -> Result<()> {
-    // The edges of the cube are defined by the following array of tuples. Each tuple contains the indices of two connected
-    // vertices in the `projected` array.
-    let edges = [
-        (0, 1), (1, 2), (2, 3), (3, 0),  // Front face
-        (4, 5), (5, 6), (6, 7), (7, 4),  // Back face
-        (0, 4), (1, 5), (2, 6), (3, 7),  // Connecting edges
-    ];
-
-    // Iterate over each edge and draw a line between the two vertices.
-    for &(start, end) in &edges {
-        draw_line(stdout, projected[start], projected[end], width, height)?;
-    }
-
-    // If all lines were drawn successfully, return an `Ok`.
-    Ok(())
-}
-
-/// Draws a line between two points on the terminal screen
-///
-/// This function takes a reference to `stdout` as the first argument, which is
-/// used to print the line on the terminal. The `start` and `end` arguments are
-/// the coordinates of the two points that make up the line. The `width` and
-/// `height` arguments are the size of the terminal window.
-///
-/// The function returns a `Result`, which is an `Err` if drawing the line fails,
-/// and an `Ok` if it succeeds.
-fn draw_line(stdout: &mut std::io::Stdout, start: Point2D, end: Point2D, width: u16, height: u16) -> Result<()> {
-    let dx = (end.x - start.x).abs();
-    let dy = -(end.y - start.y).abs();
-    let sx = if start.x < end.x { 1 } else { -1 };
-    let sy = if start.y < end.y { 1 } else { -1 };
-    let mut err = dx + dy;
-
-    let mut x = start.x;
-    let mut y = start.y;
-
-    loop {
-        // Only draw the line if the current point is within the bounds of the
-        // terminal window.
-        if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
-            execute!(stdout, MoveTo(x as u16, y as u16), Print("*"))?;
-        }
-
-        // If the current point is the same as the end point, break out of the
-        // loop.
-        if x == end.x && y == end.y {
-            break;
-        }
-
-        // Bresenham's line algorithm
-        let e2 = 2 * err;
-        if e2 >= dy {
-            err += dy;
-            x += sx;
-        }
-        if e2 <= dx {
-            err += dx;
-            y += sy;
-        }
-    }
-
-    // If all lines were drawn successfully, return an `Ok`.
-    Ok(())
-}
-
-/// Rotates a 3D point around the X and Y axes by the given angles.
-///
-/// # Formula
-///
-/// The formula for rotating a 3D point around the X axis is:
-///
-/// y' = y * cos(x) - z * sin(x)
-/// z' = y * sin(x) + z * cos(x)
-///
-/// And the formula for rotating a 3D point around the Y axis is:
-///
-/// x' = x * cos(y) + z' * sin(y)
-/// z' = -x * sin(y) + z' * cos(y)
-///
-/// # Parameters
-///
-/// * `point`: The 3D point to rotate
-/// * `angle_x`: The angle of rotation around the X axis (in radians)
-/// * `angle_y`: The angle of rotation around the Y axis (in radians)
-///
-/// # Returns
-///
-/// The rotated 3D point
 fn rotate_point(point: &Point3D, angle_x: f32, angle_y: f32) -> Point3D {
     let cos_x = angle_x.cos();
     let sin_x = angle_x.sin();
     let cos_y = angle_y.cos();
     let sin_y = angle_y.sin();
 
-    // Rotate around X axis
     let y1 = point.y * cos_x - point.z * sin_x;
     let z1 = point.y * sin_x + point.z * cos_x;
 
-    // Rotate around Y axis
     let x2 = point.x * cos_y + z1 * sin_y;
     let z2 = -point.x * sin_y + z1 * cos_y;
 
     Point3D { x: x2, y: y1, z: z2 }
 }
 
-/// Fills a face of the cube with shading
-///
-/// `projected` should contain the projected vertices of the cube face.
-/// `vertices` should contain the indices of the face vertices in the `projected` array.
-/// `shade_char` should be the character to use for filling the face.
-/// `color` should be the color to use for filling the face.
-/// `width` and `height` should be the width and height of the terminal.
-///
-/// This function iterates over each row of the terminal and calculates the
-/// intersection of the edge with the row. It then fills the row with the
-/// specified character and color from the intersection point to the edge of
-/// the window.
-fn fill_face(stdout: &mut std::io::Stdout, projected: &[Point2D], vertices: &[usize], shade_char: char, color: Color, width: u16, height: u16) -> Result<()> {
-    let points: Vec<Point2D> = vertices.iter().map(|&i| projected[i]).collect();
-    let points_with_wrap: Vec<Point2D> = points.iter().chain(points.first()).cloned().collect();
+fn project_cube(cube: &[Point3D]) -> Vec<Point2D> {
+    cube.iter()
+        .map(|p| {
+            let x = p.x * DISTANCE / (p.z + DISTANCE);
+            let y = p.y * DISTANCE / (p.z + DISTANCE);
+            Point2D { x, y }
+        })
+        .collect()
+}
 
-    for y in 0..height {
-        let mut intersections = Vec::new();
-        for window in points_with_wrap.windows(2) {
-            if let Some(x) = edge_intersect(window[0], window[1], y) {
-                intersections.push(x);
-            }
-        }
-        intersections.sort_unstable();
+fn prepare_render_data(projected: &[Point2D], faces: &[Face], size: ratatui::layout::Rect) -> Vec<Line<'static>> {
+    let mut render_data = vec![Line::from(vec![Span::raw(" ".repeat(size.width as usize))]); size.height as usize];
+    let center_x = size.width as f32 / 2.0;
+    let center_y = size.height as f32 / 2.0;
+    let scale = size.height as f32 / 4.0;
 
-        for chunk in intersections.chunks(2) {
-            if chunk.len() == 2 {
-                let start = chunk[0].max(0).min(width as i32 - 1) as u16;
-                let end = chunk[1].max(0).min(width as i32 - 1) as u16;
-                execute!(
-                    stdout,
-                    MoveTo(start, y),
-                    SetForegroundColor(color),
-                    Print(shade_char.to_string().repeat((end - start + 1) as usize)),
-                    ResetColor
-                )?;
-            }
+    for face in faces {
+        let points: Vec<(i16, i16)> = face.vertices.iter()
+            .map(|&i| {
+                let x = (projected[i].x * scale + center_x) as i16;
+                let y = (projected[i].y * scale + center_y) as i16;
+                (x, y)
+            })
+            .collect();
+
+        for i in 0..4 {
+            let (x1, y1) = points[i];
+            let (x2, y2) = points[(i + 1) % 4];
+            draw_line(&mut render_data, x1, y1, x2, y2, size);
         }
     }
 
-    Ok(())
+    render_data
 }
 
-/// Calculates the center of a face
-///
-/// This function takes a list of 3D points and a list of vertex indices
-/// that make up a face, and returns the center of the face. The center is
-/// calculated by summing the coordinates of all the vertices, and then
-/// dividing by the number of vertices.
-///
-/// # Parameters
-///
-/// * `points`: A list of 3D points
-/// * `vertices`: A list of indices of the vertices of the face
-///
-/// # Returns
-///
-/// The center of the face as a 3D point
-fn face_center(points: &[Point3D], vertices: &[usize]) -> Point3D {
-    let mut center = Point3D { x: 0.0, y: 0.0, z: 0.0 };
-    for &i in vertices {
-        center.x += points[i].x;
-        center.y += points[i].y;
-        center.z += points[i].z;
-    }
-    let len = vertices.len() as f32;
-    Point3D {
-        x: center.x / len,
-        y: center.y / len,
-        z: center.z / len,
-    }
-}
+fn draw_line(render_data: &mut [Line<'static>], mut x1: i16, mut y1: i16, x2: i16, y2: i16, size: ratatui::layout::Rect) {
+    let dx = (x2 - x1).abs();
+    let dy = -(y2 - y1).abs();
+    let sx = if x1 < x2 { 1 } else { -1 };
+    let sy = if y1 < y2 { 1 } else { -1 };
+    let mut err = dx + dy;
 
-/// Normalizes a 3D vector
-///
-/// This function takes a 3D vector and returns a new vector that has the same
-/// direction, but with a length of 1. This is useful for calculating the dot
-/// product of vectors, which is used in the lighting calculations.
-///
-/// # Parameters
-///
-/// * `v`: The 3D vector to normalize
-///
-/// # Returns
-///
-/// A normalized 3D vector
-fn normalize(v: &Point3D) -> Point3D {
-    let length = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
-    Point3D {
-        x: v.x / length,
-        y: v.y / length,
-        z: v.z / length,
-    }
-}
+    loop {
+        if x1 >= 0 && x1 < size.width as i16 && y1 >= 0 && y1 < size.height as i16 {
+            let line = &mut render_data[y1 as usize];
+            let content = line.spans[0].content.to_string();
+            let mut new_content = content.chars().collect::<Vec<char>>();
+            if let Some(c) = new_content.get_mut(x1 as usize) {
+                if *c == ' ' {
+                    *c = '█';
+                }
+            }
+            line.spans[0] = Span::raw(new_content.iter().collect::<String>());
+        }
 
-/// Calculates the dot product of two 3D vectors
-///
-/// The dot product of two vectors is a scalar value that is the sum of the products of the corresponding
-/// components of the vectors. It is used in the lighting calculations to determine the amount of light
-/// that is reflected from the surface of the cube.
-///
-/// # Parameters
-///
-/// * `a`: The first 3D vector
-/// * `b`: The second 3D vector
-///
-/// # Returns
-///
-/// The dot product of `a` and `b`
-fn dot_product(a: &Point3D, b: &Point3D) -> f32 {
-    a.x * b.x + a.y * b.y + a.z * b.z
-}
+        if x1 == x2 && y1 == y2 {
+            break;
+        }
 
-/// Returns a character representing the shading intensity
-///
-/// The returned character is a Unicode character that represents a block with a certain amount of
-/// shading. The characters are chosen so that the amount of shading increases as the value of
-/// `shade` increases.
-///
-/// # Parameters
-///
-/// * `shade`: A value between 0 and 1 that represents the amount of shading to use
-///
-/// # Returns
-///
-/// A character representing the shading intensity
-fn get_shade_char(shade: f32) -> char {
-    let shade_chars = ['░', '▒', '▓', '█'];
-    let index = ((shade * (shade_chars.len() - 1) as f32).round() as usize).min(shade_chars.len() - 1);
-    shade_chars[index]
-}
-
-/// Returns a color representing the shading intensity
-///
-/// The returned color is a grayscale color where the intensity of the color
-/// increases as the value of `shade` increases.
-///
-/// # Parameters
-///
-/// * `shade`: A value between 0 and 1 that represents the amount of shading to use
-///
-/// # Returns
-///
-/// A color representing the shading intensity
-fn get_shade_color(shade: f32) -> Color {
-    let intensity = (shade * 255.0) as u8;
-    Color::Rgb { r: intensity, g: intensity, b: intensity }
-}
-
-/// Calculates the intersection of an edge with a horizontal line
-///
-/// This function takes two points `p1` and `p2` that represent an edge, and a
-/// y-coordinate `y` that represents a horizontal line. It returns the x-coordinate
-/// of the intersection between the edge and the line, if the intersection is
-/// inside the edge. If the intersection is outside the edge, or if the edge is
-/// vertical (i.e. `p1.y == p2.y`), the function returns `None`.
-///
-/// # Parameters
-///
-/// * `p1`: The first point of the edge
-/// * `p2`: The second point of the edge
-/// * `y`: The y-coordinate of the horizontal line
-///
-/// # Returns
-///
-/// The x-coordinate of the intersection between the edge and the line, or `None` if
-/// the intersection is outside the edge or if the edge is vertical
-fn edge_intersect(p1: Point2D, p2: Point2D, y: u16) -> Option<i32> {
-    let y = y as i32;
-    // Check if the intersection is inside the edge
-    if (p1.y > y && p2.y <= y) || (p2.y > y && p1.y <= y) {
-        // Calculate the x-coordinate of the intersection
-        let x = p1.x + (p2.x - p1.x) * (y - p1.y) / (p2.y - p1.y);
-        Some(x)
-    } else {
-        None
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x1 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y1 += sy;
+        }
     }
 }
