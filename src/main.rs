@@ -29,8 +29,6 @@ const ANGLE_INCREMENT: f32 = 0.05;
 const MIN_CUBE_SIZE: f32 = 4.0;
 const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
 const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
-const RESIZE_COOLDOWN: Duration = Duration::from_millis(100);
-const WIREFRAME_DURATION: Duration = Duration::from_millis(500);
 
 /// Represents a point in 3D space
 #[derive(Clone, Copy)]
@@ -71,7 +69,6 @@ fn main() -> Result<()> {
     let mut angle_y = 0.0;
     let mut last_frame = Instant::now();
     let mut last_size = (0, 0);
-    let mut last_resize = Instant::now() - WIREFRAME_DURATION - Duration::from_secs(1); // Initialize to past
 
     let light_direction = normalize(&LIGHT_DIRECTION);
 
@@ -83,12 +80,11 @@ fn main() -> Result<()> {
         // Handle terminal resizing
         let resized = (width, height) != last_size;
         if resized {
-            last_resize = now;
             last_size = (width, height);
         }
 
-        // Render frame if enough time has passed and not actively resizing
-        if elapsed >= FRAME_DURATION && now.duration_since(last_resize) > RESIZE_COOLDOWN {
+        // Render frame if enough time has passed
+        if elapsed >= FRAME_DURATION {
             if width < 10 || height < 10 {
                 execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
                 stdout.flush()?;
@@ -107,12 +103,7 @@ fn main() -> Result<()> {
 
             execute!(stdout, Clear(ClearType::All))?;
             
-            // Use wireframe rendering if recently resized
-            if now.duration_since(last_resize) < WIREFRAME_DURATION {
-                draw_cube_wireframe(&mut stdout, &projected_cube, width, height)?;
-            } else {
-                draw_cube(&mut stdout, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
-            }
+            draw_cube(&mut stdout, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
 
             execute!(stdout, MoveTo(0, 0), Print("Press Ctrl+C to exit"))?;
             stdout.flush()?;
@@ -280,78 +271,6 @@ fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Poi
         fill_face(stdout, projected, &face.vertices, shade_char, color, width, height)?;
     }
 
-    Ok(())
-}
-
-/// Draws the cube as a wireframe by drawing lines between each pair of connected vertices.
-///
-/// The cube is defined by the `projected` array, which contains the projected coordinates of each vertex.
-/// The `width` and `height` parameters give the size of the terminal window.
-///
-/// The function returns a `Result`, which is an `Err` if drawing the cube fails, and an `Ok` if it succeeds.
-fn draw_cube_wireframe(stdout: &mut std::io::Stdout, projected: &[Point2D], width: u16, height: u16) -> Result<()> {
-    // The edges of the cube are defined by the following array of tuples. Each tuple contains the indices of two connected
-    // vertices in the `projected` array.
-    let edges = [
-        (0, 1), (1, 2), (2, 3), (3, 0),  // Front face
-        (4, 5), (5, 6), (6, 7), (7, 4),  // Back face
-        (0, 4), (1, 5), (2, 6), (3, 7),  // Connecting edges
-    ];
-
-    // Iterate over each edge and draw a line between the two vertices.
-    for &(start, end) in &edges {
-        draw_line(stdout, projected[start], projected[end], width, height)?;
-    }
-
-    // If all lines were drawn successfully, return an `Ok`.
-    Ok(())
-}
-
-/// Draws a line between two points on the terminal screen
-///
-/// This function takes a reference to `stdout` as the first argument, which is
-/// used to print the line on the terminal. The `start` and `end` arguments are
-/// the coordinates of the two points that make up the line. The `width` and
-/// `height` arguments are the size of the terminal window.
-///
-/// The function returns a `Result`, which is an `Err` if drawing the line fails,
-/// and an `Ok` if it succeeds.
-fn draw_line(stdout: &mut std::io::Stdout, start: Point2D, end: Point2D, width: u16, height: u16) -> Result<()> {
-    let dx = (end.x - start.x).abs();
-    let dy = -(end.y - start.y).abs();
-    let sx = if start.x < end.x { 1 } else { -1 };
-    let sy = if start.y < end.y { 1 } else { -1 };
-    let mut err = dx + dy;
-
-    let mut x = start.x;
-    let mut y = start.y;
-
-    loop {
-        // Only draw the line if the current point is within the bounds of the
-        // terminal window.
-        if x >= 0 && x < width as i32 && y >= 0 && y < height as i32 {
-            execute!(stdout, MoveTo(x as u16, y as u16), Print("*"))?;
-        }
-
-        // If the current point is the same as the end point, break out of the
-        // loop.
-        if x == end.x && y == end.y {
-            break;
-        }
-
-        // Bresenham's line algorithm
-        let e2 = 2 * err;
-        if e2 >= dy {
-            err += dy;
-            x += sx;
-        }
-        if e2 <= dx {
-            err += dx;
-            y += sy;
-        }
-    }
-
-    // If all lines were drawn successfully, return an `Ok`.
     Ok(())
 }
 
