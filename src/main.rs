@@ -135,6 +135,15 @@ fn main() -> Result<()> {
     let mut last_resize_time = Instant::now();
     let resize_cooldown = Duration::from_millis(500); // Increased cooldown period
 
+    // Draw the welcome screen
+    draw_welcome_message(&mut buffer, width, height);
+    buffer.render(&mut stdout)?;
+
+    // Wait 3 seconds before starting the cube animation
+    std::thread::sleep(Duration::from_secs(3));
+    buffer.clear();
+    buffer.render(&mut stdout)?;
+
     loop {
         if poll(Duration::from_millis(1))? {
             match read()? {
@@ -211,6 +220,21 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+
+/// Draws a welcome screen when the program starts
+/// The welcome screen displays a message indicating that the program is running
+/// and tells the user to press 'q' to quit
+fn draw_welcome_message(buffer: &mut Buffer, width: u16, height: u16) {
+    let welcome_message = "Welcome to cube3d, press 'q' to quit";
+    let x = width as usize / 2 - welcome_message.len() / 2;
+    let y = height as usize / 2;
+
+    for (i, ch) in welcome_message.chars().enumerate() {
+        buffer.set(x + i, y, ch, Color::White);
+    }
+}
+
+/// Draws a message indicating that the terminal is resizing
 fn draw_resize_message(buffer: &mut Buffer, width: u16, height: u16) {
     let message = "Resizing...";
     let x = width as usize / 2 - message.len() / 2;
