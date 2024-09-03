@@ -16,11 +16,13 @@
 use std::io::{stdout, Write, Result};
 use std::time::{Duration, Instant};
 use std::{thread, f32::consts::PI};
+use crossterm::style::Print;
 use crossterm::{
     execute,
-    style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{Clear, ClearType, size},
-    cursor::MoveTo,
+    style::{Color, SetForegroundColor, ResetColor},
+    terminal::{Clear, ClearType, size, enable_raw_mode, disable_raw_mode},
+    cursor::{Hide, Show, MoveTo},
+    event::{poll, read, Event, KeyCode},
 };
 
 /// Constants for cube rendering and animation
@@ -52,6 +54,59 @@ struct Face {
     color: Color,
 }
 
+struct Buffer {
+    width: usize,
+    height: usize,
+    content: Vec<Vec<(char, Color)>>,
+}
+
+impl Buffer {
+    fn new(width: usize, height: usize) -> Self {
+        Buffer {
+            width,
+            height,
+            content: vec![vec![(' ', Color::Reset); width]; height],
+        }
+    }
+
+    fn set(&mut self, x: usize, y: usize, ch: char, color: Color) {
+        if x < self.width && y < self.height {
+            self.content[y][x] = (ch, color);
+        }
+    }
+
+    fn clear(&mut self) {
+        for row in self.content.iter_mut() {
+            for cell in row.iter_mut() {
+                *cell = (' ', Color::Reset);
+            }
+        }
+    }
+
+    fn resize(&mut self, new_width: usize, new_height: usize) {
+        self.width = new_width;
+        self.height = new_height;
+        self.content = vec![vec![(' ', Color::Reset); new_width]; new_height];
+    }
+
+    fn render(&self, stdout: &mut std::io::Stdout) -> Result<()> {
+        let mut last_color = Color::Reset;
+        for (y, row) in self.content.iter().enumerate() {
+            execute!(stdout, MoveTo(0, y as u16))?;
+            for &(ch, color) in row {
+                if color != last_color {
+                    execute!(stdout, SetForegroundColor(color))?;
+                    last_color = color;
+                }
+                write!(stdout, "{}", ch)?;
+            }
+        }
+        execute!(stdout, ResetColor)?;
+        stdout.flush()?;
+        Ok(())
+    }
+}
+
 /// Main function that sets up and runs the cube rendering loop
 ///
 /// This function is the entry point of the program. It initializes the terminal, creates the cube and faces,
@@ -64,26 +119,57 @@ struct Face {
 ///
 /// Otherwise, it renders the cube with shading.
 fn main() -> Result<()> {
+    enable_raw_mode()?;
     let mut stdout = stdout();
+    execute!(stdout, Hide, Clear(ClearType::All))?;
+
     let mut angle_x = 0.0;
     let mut angle_y = 0.0;
     let mut last_frame = Instant::now();
-    let mut last_size = (0, 0);
-
     let light_direction = normalize(&LIGHT_DIRECTION);
 
-    loop {
-        let now = Instant::now();
-        let elapsed = now.duration_since(last_frame);
-        let (width, height) = get_terminal_size();
+    let (mut width, mut height) = size()?;
+    let mut buffer = Buffer::new(width as usize, height as usize);
 
-        // Handle terminal resizing
-        let resized = (width, height) != last_size;
-        if resized {
-            last_size = (width, height);
+    let mut is_resizing = false;
+    let mut last_resize_time = Instant::now();
+    let resize_cooldown = Duration::from_millis(500); // Increased cooldown period
+
+    loop {
+        if poll(Duration::from_millis(1))? {
+            match read()? {
+                Event::Key(key_event) => {
+                    if key_event.code == KeyCode::Esc || key_event.code == KeyCode::Char('q') {
+                        break;
+                    }
+                },
+                Event::Resize(new_width, new_height) => {
+                    width = new_width;
+                    height = new_height;
+                    buffer.resize(width as usize, height as usize);
+                    execute!(stdout, Clear(ClearType::All))?;
+                    is_resizing = true;
+                    last_resize_time = Instant::now();
+                },
+                _ => {}
+            }
         }
 
-        // Render frame if enough time has passed
+        let now = Instant::now();
+
+        if is_resizing {
+            if now.duration_since(last_resize_time) > resize_cooldown {
+                is_resizing = false;
+            } else {
+                buffer.clear();
+                draw_resize_message(&mut buffer, width, height);
+                buffer.render(&mut stdout)?;
+                continue;
+            }
+        }
+
+        let elapsed = now.duration_since(last_frame);
+
         if elapsed >= FRAME_DURATION {
             if width < 10 || height < 10 {
                 execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
@@ -101,16 +187,12 @@ fn main() -> Result<()> {
             let rotated_cube = rotate_cube(&cube, angle_x, angle_y);
             let projected_cube = project_cube(&rotated_cube, center_x, center_y);
 
-            execute!(stdout, Clear(ClearType::All))?;
-            
-            draw_cube(&mut stdout, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
+            buffer.clear();
+            draw_cube(&mut buffer, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
+            buffer.render(&mut stdout)?;
 
-            execute!(stdout, MoveTo(0, 0), Print("Press Ctrl+C to exit"))?;
-            stdout.flush()?;
-
-            // Update rotation angles
             angle_x += ANGLE_INCREMENT;
-            angle_y += ANGLE_INCREMENT * 0.7; // Rotate around X-axis more slowly for 3D effect
+            angle_y += ANGLE_INCREMENT * 0.7;
             if angle_x >= 2.0 * PI {
                 angle_x -= 2.0 * PI;
             }
@@ -119,15 +201,24 @@ fn main() -> Result<()> {
             }
 
             last_frame = now;
-        } else {
-            std::thread::sleep(Duration::from_millis(5));
         }
+
+        thread::sleep(Duration::from_millis(1));
     }
+
+    execute!(stdout, Show)?;
+    disable_raw_mode()?;
+    Ok(())
 }
 
-/// Returns the current terminal size
-fn get_terminal_size() -> (u16, u16) {
-    size().unwrap_or((80, 24))
+fn draw_resize_message(buffer: &mut Buffer, width: u16, height: u16) {
+    let message = "Resizing...";
+    let x = width as usize / 2 - message.len() / 2;
+    let y = height as usize / 2;
+
+    for (i, ch) in message.chars().enumerate() {
+        buffer.set(x + i, y, ch, Color::White);
+    }
 }
 
 /// Creates the initial cube vertices
@@ -248,7 +339,7 @@ fn project_cube(cube: &[Point3D], center_x: i32, center_y: i32) -> Vec<Point2D> 
 /// handle, the projected vertices of the cube, the vertices of the face, the
 /// shade character, the shade color, and the width and height of the
 /// terminal.
-fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Point3D], faces: &[Face], light_direction: &Point3D, angle_x: f32, angle_y: f32, width: u16, height: u16) -> Result<()> {
+fn draw_cube(buffer: &mut Buffer, projected: &[Point2D], rotated: &[Point3D], faces: &[Face], light_direction: &Point3D, angle_x: f32, angle_y: f32, width: u16, height: u16) -> Result<()> {
     let mut face_depths: Vec<(usize, f32)> = faces.iter().enumerate()
         .map(|(i, face)| {
             let center = face_center(rotated, &face.vertices);
@@ -266,7 +357,7 @@ fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Poi
         let shade_char = get_shade_char(shade);
         let color = shade_color(&face.color, shade);
 
-        fill_face(stdout, projected, &face.vertices, shade_char, color, width, height)?;
+        fill_face(buffer, projected, &face.vertices, shade_char, color, width, height);
     }
 
     Ok(())
@@ -337,7 +428,7 @@ fn rotate_point(point: &Point3D, angle_x: f32, angle_y: f32) -> Point3D {
 ///
 /// A Result containing a () if the operation was successful, or an error
 /// if something went wrong.
-fn fill_face(stdout: &mut std::io::Stdout, projected: &[Point2D], vertices: &[usize], shade_char: char, color: Color, width: u16, height: u16) -> Result<()> {
+fn fill_face(buffer: &mut Buffer, projected: &[Point2D], vertices: &[usize], shade_char: char, color: Color, width: u16, height: u16) {
     let points: Vec<Point2D> = vertices.iter().map(|&i| projected[i]).collect();
     let points_with_wrap: Vec<Point2D> = points.iter().chain(points.first()).cloned().collect();
 
@@ -352,20 +443,14 @@ fn fill_face(stdout: &mut std::io::Stdout, projected: &[Point2D], vertices: &[us
 
         for chunk in intersections.chunks(2) {
             if chunk.len() == 2 {
-                let start = chunk[0].max(0).min(width as i32 - 1) as u16;
-                let end = chunk[1].max(0).min(width as i32 - 1) as u16;
-                execute!(
-                    stdout,
-                    MoveTo(start, y),
-                    SetForegroundColor(color),
-                    Print(shade_char.to_string().repeat((end - start + 1) as usize)),
-                    ResetColor
-                )?;
+                let start = chunk[0].max(0).min(width as i32 - 1) as usize;
+                let end = chunk[1].max(0).min(width as i32 - 1) as usize;
+                for x in start..=end {
+                    buffer.set(x, y as usize, shade_char, color);
+                }
             }
         }
     }
-
-    Ok(())
 }
 
 /// Calculates the center of a face
