@@ -49,8 +49,8 @@ struct Point2D {
 struct Face {
     vertices: [usize; 4],
     normal: Point3D,
+    color: Color,
 }
-
 
 /// Main function that sets up and runs the cube rendering loop
 ///
@@ -147,12 +147,12 @@ fn create_cube(size: f32) -> Vec<Point3D> {
 /// Creates the faces of the cube
 fn create_faces() -> Vec<Face> {
     vec![
-        Face { vertices: [0, 1, 2, 3], normal: Point3D { x: 0.0, y: 0.0, z: -1.0 } }, // Front
-        Face { vertices: [5, 4, 7, 6], normal: Point3D { x: 0.0, y: 0.0, z: 1.0 } },  // Back
-        Face { vertices: [1, 5, 6, 2], normal: Point3D { x: 1.0, y: 0.0, z: 0.0 } },  // Right
-        Face { vertices: [4, 0, 3, 7], normal: Point3D { x: -1.0, y: 0.0, z: 0.0 } }, // Left
-        Face { vertices: [3, 2, 6, 7], normal: Point3D { x: 0.0, y: 1.0, z: 0.0 } },  // Top
-        Face { vertices: [1, 0, 4, 5], normal: Point3D { x: 0.0, y: -1.0, z: 0.0 } }, // Bottom
+        Face { vertices: [0, 1, 2, 3], normal: Point3D { x: 0.0, y: 0.0, z: -1.0 }, color: Color::Red },
+        Face { vertices: [5, 4, 7, 6], normal: Point3D { x: 0.0, y: 0.0, z: 1.0 }, color: Color::Green },
+        Face { vertices: [1, 5, 6, 2], normal: Point3D { x: 1.0, y: 0.0, z: 0.0 }, color: Color::Blue },
+        Face { vertices: [4, 0, 3, 7], normal: Point3D { x: -1.0, y: 0.0, z: 0.0 }, color: Color::Yellow },
+        Face { vertices: [3, 2, 6, 7], normal: Point3D { x: 0.0, y: 1.0, z: 0.0 }, color: Color::Magenta },
+        Face { vertices: [1, 0, 4, 5], normal: Point3D { x: 0.0, y: -1.0, z: 0.0 }, color: Color::Cyan },
     ]
 }
 
@@ -256,7 +256,6 @@ fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Poi
         })
         .collect();
 
-    // Sort the faces by their depth
     face_depths.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
     for (face_index, _) in face_depths {
@@ -265,9 +264,8 @@ fn draw_cube(stdout: &mut std::io::Stdout, projected: &[Point2D], rotated: &[Poi
         let shade = dot_product(&rotated_normal, light_direction).max(0.1);
 
         let shade_char = get_shade_char(shade);
-        let color = get_shade_color(shade);
+        let color = shade_color(&face.color, shade);
 
-        // Draw the face
         fill_face(stdout, projected, &face.vertices, shade_char, color, width, height)?;
     }
 
@@ -314,18 +312,31 @@ fn rotate_point(point: &Point3D, angle_x: f32, angle_y: f32) -> Point3D {
     Point3D { x: x2, y: y1, z: z2 }
 }
 
-/// Fills a face of the cube with shading
+/// Fills a face with a shade character
 ///
-/// `projected` should contain the projected vertices of the cube face.
-/// `vertices` should contain the indices of the face vertices in the `projected` array.
-/// `shade_char` should be the character to use for filling the face.
-/// `color` should be the color to use for filling the face.
-/// `width` and `height` should be the width and height of the terminal.
+/// This function takes a list of projected vertices for a face, and fills
+/// the face with a shade character. The shade character is chosen based on
+/// the shade value of the face, and its color is determined by the color
+/// of the face.
 ///
-/// This function iterates over each row of the terminal and calculates the
-/// intersection of the edge with the row. It then fills the row with the
-/// specified character and color from the intersection point to the edge of
-/// the window.
+/// The function draws the face by finding the intersection points of the
+/// edges of the face with the horizontal lines of the terminal, and then
+/// drawing a line between each pair of consecutive intersection points.
+///
+/// # Parameters
+///
+/// * `stdout`: The handle to the terminal
+/// * `projected`: The projected vertices of the cube
+/// * `vertices`: The vertices of the face to draw
+/// * `shade_char`: The character to use for filling the face
+/// * `color`: The color of the face
+/// * `width`: The width of the terminal
+/// * `height`: The height of the terminal
+///
+/// # Returns
+///
+/// A Result containing a () if the operation was successful, or an error
+/// if something went wrong.
 fn fill_face(stdout: &mut std::io::Stdout, projected: &[Point2D], vertices: &[usize], shade_char: char, color: Color, width: u16, height: u16) -> Result<()> {
     let points: Vec<Point2D> = vertices.iter().map(|&i| projected[i]).collect();
     let points_with_wrap: Vec<Point2D> = points.iter().chain(points.first()).cloned().collect();
@@ -446,21 +457,47 @@ fn get_shade_char(shade: f32) -> char {
     shade_chars[index]
 }
 
-/// Returns a color representing the shading intensity
+/// Creates a new color by applying a shade to the given color.
 ///
-/// The returned color is a grayscale color where the intensity of the color
-/// increases as the value of `shade` increases.
+/// The shade is a value between 0 and 1 that represents the amount of shading to use.
+/// The returned color will be darker than the original color if the shade value is less
+/// than 1, and lighter if the shade value is greater than 1.
 ///
 /// # Parameters
 ///
-/// * `shade`: A value between 0 and 1 that represents the amount of shading to use
+/// * `color`: The color to shade
+/// * `shade`: The shade value to use
 ///
 /// # Returns
 ///
-/// A color representing the shading intensity
-fn get_shade_color(shade: f32) -> Color {
-    let intensity = (shade * 255.0) as u8;
-    Color::Rgb { r: intensity, g: intensity, b: intensity }
+/// A new color that is the original color with the specified shade applied
+fn shade_color(color: &Color, shade: f32) -> Color {
+    match color {
+        Color::Rgb { r, g, b } => {
+            // Apply the shade to the individual components of the color
+            let r = (*r as f32 * shade) as u8;
+            let g = (*g as f32 * shade) as u8;
+            let b = (*b as f32 * shade) as u8;
+
+            // Create a new color with the shaded components
+            Color::Rgb { r, g, b }
+        },
+        _ => {
+            // Apply the shade to the intensity of the color
+            let intensity = (shade * 255.0) as u8;
+
+            // Create a new color with the shaded intensity
+            match color {
+                Color::Red => Color::Rgb { r: intensity, g: 0, b: 0 },
+                Color::Green => Color::Rgb { r: 0, g: intensity, b: 0 },
+                Color::Blue => Color::Rgb { r: 0, g: 0, b: intensity },
+                Color::Yellow => Color::Rgb { r: intensity, g: intensity, b: 0 },
+                Color::Magenta => Color::Rgb { r: intensity, g: 0, b: intensity },
+                Color::Cyan => Color::Rgb { r: 0, g: intensity, b: intensity },
+                _ => Color::Rgb { r: intensity, g: intensity, b: intensity },
+            }
+        }
+    }
 }
 
 /// Calculates the intersection of an edge with a horizontal line
