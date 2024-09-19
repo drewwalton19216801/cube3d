@@ -44,6 +44,8 @@ const ANGLE_INCREMENT: f32 = 0.05;
 const MIN_CUBE_SIZE: f32 = 4.0;
 const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
 const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
+const CAMERA_BOB_SPEED: f32 = 0.05;
+const CAMERA_BOB_AMPLITUDE: f32 = 2.0;
 
 /// Represents a point in 3D space
 #[derive(Clone, Copy)]
@@ -65,6 +67,25 @@ struct Face {
     vertices: [usize; 4],
     normal: Point3D,
     color: Color,
+}
+
+/// Represents the camera position
+struct Camera {
+    x: f32,
+    y: f32,
+    time: f32,
+}
+
+impl Camera {
+    fn new() -> Self {
+        Camera { x: 0.0, y: 0.0, time: 0.0 }
+    }
+
+    fn update(&mut self, dt: f32) {
+        self.time += dt;
+        self.x = CAMERA_BOB_AMPLITUDE * (self.time * CAMERA_BOB_SPEED).sin();
+        self.y = CAMERA_BOB_AMPLITUDE * (self.time * CAMERA_BOB_SPEED * 0.5).cos();
+    }
 }
 
 /// Buffer for storing and rendering the cube
