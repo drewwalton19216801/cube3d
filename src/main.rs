@@ -29,6 +29,7 @@
 //! Specify the desired FPS with the `--fps` flag, enable debug info with the `--debug` flag.
 //! The cube will automatically adjust its size based on the terminal dimensions.
 //!
+use std::fmt::format;
 use std::io::{stdout, Write, Result};
 use std::time::{Duration, Instant};
 use std::f32::consts::PI;
@@ -286,9 +287,10 @@ fn main() -> Result<()> {
 
                 // Draw FPS (as a float number to the hundredths directly below the version
                 let fps = frame_timer.get_fps();
+                let fps_string: String = format!("target fps: {:.2}, actual fps: {:.2}", args.fps.unwrap_or(DEFAULT_FPS), fps);
                 let fps_x = 0;
                 let fps_y = version_y + 1;
-                for (i, ch) in fps.to_string().chars().enumerate() {
+                for (i, ch) in fps_string.chars().enumerate() {
                     buffer.set((fps_x + i as u16).into(), fps_y, ch, Color::White);
                 }
             }
