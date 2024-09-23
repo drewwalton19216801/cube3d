@@ -262,8 +262,6 @@ fn main() -> Result<()> {
 
             last_frame = now;
         }
-
-        thread::sleep(Duration::from_millis(1));
     }
 
     execute!(stdout, Show)?;
