@@ -44,13 +44,16 @@ const DISTANCE: f32 = 50.0;
 const ANGLE_INCREMENT: f32 = 0.05;
 const MIN_CUBE_SIZE: f32 = 4.0;
 const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
-const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
+const DEFAULT_FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
     debug: bool,
+
+    #[arg(short, long)]
+    fps: Option<u32>,
 }
 
 /// Represents a point in 3D space
@@ -196,7 +199,18 @@ fn main() -> Result<()> {
 
         let elapsed = now.duration_since(last_frame);
 
-        if elapsed >= FRAME_DURATION {
+        // If the user specified a custom FPS, calculate the desired frame duration
+        let frame_duration = if let Some(fps) = args.fps {
+            let frame_duration = Duration::from_secs(1) / fps;
+            if elapsed < frame_duration {
+                thread::sleep(frame_duration - elapsed);
+            }
+            frame_duration
+        } else {
+            DEFAULT_FRAME_DURATION
+        };
+
+        if elapsed >= frame_duration {
             if width < 10 || height < 10 {
                 execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
                 stdout.flush()?;
