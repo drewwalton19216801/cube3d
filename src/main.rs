@@ -29,7 +29,6 @@
 //! Specify the desired FPS with the `--fps` flag, enable debug info with the `--debug` flag.
 //! The cube will automatically adjust its size based on the terminal dimensions.
 //!
-use std::fmt::format;
 use std::io::{stdout, Write, Result};
 use std::time::{Duration, Instant};
 use std::f32::consts::PI;
