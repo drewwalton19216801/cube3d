@@ -45,7 +45,7 @@ const MIN_CUBE_SIZE: f32 = 4.0;
 const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
 const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
 const CAMERA_BOB_SPEED: f32 = 0.05;
-const CAMERA_BOB_AMPLITUDE: f32 = 10.0;
+const CAMERA_BOB_AMPLITUDE: f32 = 2.0;
 
 /// Represents a point in 3D space
 #[derive(Clone, Copy)]
@@ -73,19 +73,18 @@ struct Face {
 struct Camera {
     x: f32,
     y: f32,
-    start_time: Instant,
+    time: f32,
 }
-
 
 impl Camera {
     fn new() -> Self {
-        Camera { x: 0.0, y: 0.0, start_time: Instant::now() }
+        Camera { x: 0.0, y: 0.0, time: 0.0 }
     }
 
-    fn update(&mut self) {
-        let elapsed = self.start_time.elapsed().as_secs_f32();
-        self.x = CAMERA_BOB_AMPLITUDE * (elapsed * CAMERA_BOB_SPEED).sin();
-        self.y = CAMERA_BOB_AMPLITUDE * (elapsed * CAMERA_BOB_SPEED * 0.5).cos();
+    fn update(&mut self, dt: f32) {
+        self.time += dt;
+        self.x = CAMERA_BOB_AMPLITUDE * (self.time * CAMERA_BOB_SPEED).sin();
+        self.y = CAMERA_BOB_AMPLITUDE * (self.time * CAMERA_BOB_SPEED * 0.5).cos();
     }
 }
 
@@ -166,8 +165,6 @@ fn main() -> Result<()> {
     let mut last_resize_time = Instant::now();
     let resize_cooldown = Duration::from_millis(500);
 
-    let mut camera = Camera::new();
-
     draw_welcome_message(&mut buffer, width, height);
     buffer.render(&mut stdout)?;
 
@@ -224,29 +221,11 @@ fn main() -> Result<()> {
 
             let cube = create_cube(cube_size);
             let faces = create_faces();
-
-            // Update camera position
-            camera.update();
-
-            // Apply camera offset to cube before rotation
-            let offset_cube: Vec<Point3D> = cube.iter().map(|p| Point3D {
-                x: p.x + camera.x,
-                y: p.y + camera.y,
-                z: p.z,
-            }).collect();
-
-            let rotated_cube = rotate_cube(&offset_cube, angle_x, angle_y);
+            let rotated_cube = rotate_cube(&cube, angle_x, angle_y);
             let projected_cube = project_cube(&rotated_cube, center_x, center_y);
 
             buffer.clear();
             draw_cube(&mut buffer, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
-
-            // Debug output for camera position
-            let debug_message = format!("Camera: x={:.2}, y={:.2}", camera.x, camera.y);
-            for (i, ch) in debug_message.chars().enumerate() {
-                buffer.set(i, 0, ch, Color::White);
-            }
-
             buffer.render(&mut stdout)?;
 
             angle_x += ANGLE_INCREMENT;
