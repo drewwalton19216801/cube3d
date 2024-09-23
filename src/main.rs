@@ -227,7 +227,7 @@ fn main() -> Result<()> {
                 }
 
                 // Draw FPS (as a float number to the hundredths directly below the version
-                let fps_string = format!("{:.2}", 1.0 / elapsed.as_secs_f32());
+                let fps_string = format!("FPS: {:.2}", 1.0 / elapsed.as_secs_f32());
                 let fps = fps_string.trim_end_matches(".0");
                 let fps_x = 0;
                 let fps_y = version_y + 1;
