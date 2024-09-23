@@ -1,63 +1,51 @@
 //! # 3D Cube Renderer for Terminal
-//!
+//! 
 //! This program renders a rotating 3D cube in the terminal using ASCII characters
 //! and ANSI colors. It demonstrates basic 3D graphics concepts such as:
-//!
+//! 
 //! - 3D to 2D projection
 //! - Rotation in 3D space
 //! - Face culling
 //! - Simple lighting and shading
-//!
+//! 
 //! The cube rotates continuously, with each face colored differently and shaded
 //! based on its orientation relative to a light source. The program handles
 //! terminal resizing and provides a smooth animation at approximately 30 FPS.
-//!
+//! 
 //! ## Features:
 //! - Real-time 3D rendering in the terminal
 //! - Colored cube faces with dynamic shading
 //! - Smooth rotation animation
 //! - Responsive to terminal resizing
 //! - Simple user interface (press 'q' to quit)
-//!
+//! 
 //! ## Dependencies:
 //! - crossterm: For terminal manipulation and event handling
-//!
+//! 
 //! ## Usage:
 //! Run the program and watch the cube rotate. Press 'q' or 'Esc' to exit.
 //! The cube will automatically adjust its size based on the terminal dimensions.
-//!
-use clap::Parser;
+//! 
+use std::io::{stdout, Write, Result};
+use std::time::{Duration, Instant};
+use std::{thread, f32::consts::PI};
 use crossterm::style::Print;
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
-    event::{poll, read, Event, KeyCode},
     execute,
-    style::{Color, ResetColor, SetForegroundColor},
-    terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType},
+    style::{Color, SetForegroundColor, ResetColor},
+    terminal::{Clear, ClearType, size, enable_raw_mode, disable_raw_mode},
+    cursor::{Hide, Show, MoveTo},
+    event::{poll, read, Event, KeyCode},
 };
-use std::io::{stdout, Result, Write};
-use std::time::{Duration, Instant};
-use std::{f32::consts::PI, thread};
 
 // Constants for cube rendering and animation
 const DISTANCE: f32 = 50.0;
 const ANGLE_INCREMENT: f32 = 0.05;
 const MIN_CUBE_SIZE: f32 = 4.0;
-const LIGHT_DIRECTION: Point3D = Point3D {
-    x: -1.0,
-    y: -1.0,
-    z: -1.0,
-};
+const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
 const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
 const CAMERA_BOB_SPEED: f32 = 0.05;
 const CAMERA_BOB_AMPLITUDE: f32 = 10.0;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[arg(short, long)]
-    debug: bool,
-}
 
 /// Represents a point in 3D space
 #[derive(Clone, Copy)]
@@ -88,13 +76,10 @@ struct Camera {
     start_time: Instant,
 }
 
+
 impl Camera {
     fn new() -> Self {
-        Camera {
-            x: 0.0,
-            y: 0.0,
-            start_time: Instant::now(),
-        }
+        Camera { x: 0.0, y: 0.0, start_time: Instant::now() }
     }
 
     fn update(&mut self) {
@@ -165,8 +150,6 @@ impl Buffer {
 
 /// Main function to run the 3D cube animation
 fn main() -> Result<()> {
-    let args = Args::parse();
-
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, Hide, Clear(ClearType::All))?;
@@ -199,7 +182,7 @@ fn main() -> Result<()> {
                     if key_event.code == KeyCode::Esc || key_event.code == KeyCode::Char('q') {
                         break;
                     }
-                }
+                },
                 Event::Resize(new_width, new_height) => {
                     width = new_width;
                     height = new_height;
@@ -207,7 +190,7 @@ fn main() -> Result<()> {
                     execute!(stdout, Clear(ClearType::All))?;
                     is_resizing = true;
                     last_resize_time = Instant::now();
-                }
+                },
                 _ => {}
             }
         }
@@ -229,12 +212,7 @@ fn main() -> Result<()> {
 
         if elapsed >= FRAME_DURATION {
             if width < 10 || height < 10 {
-                execute!(
-                    stdout,
-                    Clear(ClearType::All),
-                    MoveTo(0, 0),
-                    Print("Terminal too small")
-                )?;
+                execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
                 stdout.flush()?;
                 thread::sleep(Duration::from_millis(100));
                 continue;
@@ -251,37 +229,22 @@ fn main() -> Result<()> {
             camera.update();
 
             // Apply camera offset to cube before rotation
-            let offset_cube: Vec<Point3D> = cube
-                .iter()
-                .map(|p| Point3D {
-                    x: p.x + camera.x,
-                    y: p.y + camera.y,
-                    z: p.z,
-                })
-                .collect();
+            let offset_cube: Vec<Point3D> = cube.iter().map(|p| Point3D {
+                x: p.x + camera.x,
+                y: p.y + camera.y,
+                z: p.z,
+            }).collect();
 
             let rotated_cube = rotate_cube(&offset_cube, angle_x, angle_y);
             let projected_cube = project_cube(&rotated_cube, center_x, center_y);
 
             buffer.clear();
-            draw_cube(
-                &mut buffer,
-                &projected_cube,
-                &rotated_cube,
-                &faces,
-                &light_direction,
-                angle_x,
-                angle_y,
-                width,
-                height,
-            )?;
+            draw_cube(&mut buffer, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
 
             // Debug output for camera position
-            if args.debug {
-                let debug_message = format!("Camera: x={:.2}, y={:.2}", camera.x, camera.y);
-                for (i, ch) in debug_message.chars().enumerate() {
-                    buffer.set(i, 0, ch, Color::White);
-                }
+            let debug_message = format!("Camera: x={:.2}, y={:.2}", camera.x, camera.y);
+            for (i, ch) in debug_message.chars().enumerate() {
+                buffer.set(i, 0, ch, Color::White);
             }
 
             buffer.render(&mut stdout)?;
@@ -331,106 +294,26 @@ fn draw_resize_message(buffer: &mut Buffer, width: u16, height: u16) {
 /// Creates the vertices of a cube with the given size
 fn create_cube(size: f32) -> Vec<Point3D> {
     vec![
-        Point3D {
-            x: -size / 2.0,
-            y: -size / 2.0,
-            z: -size / 2.0,
-        },
-        Point3D {
-            x: size / 2.0,
-            y: -size / 2.0,
-            z: -size / 2.0,
-        },
-        Point3D {
-            x: size / 2.0,
-            y: size / 2.0,
-            z: -size / 2.0,
-        },
-        Point3D {
-            x: -size / 2.0,
-            y: size / 2.0,
-            z: -size / 2.0,
-        },
-        Point3D {
-            x: -size / 2.0,
-            y: -size / 2.0,
-            z: size / 2.0,
-        },
-        Point3D {
-            x: size / 2.0,
-            y: -size / 2.0,
-            z: size / 2.0,
-        },
-        Point3D {
-            x: size / 2.0,
-            y: size / 2.0,
-            z: size / 2.0,
-        },
-        Point3D {
-            x: -size / 2.0,
-            y: size / 2.0,
-            z: size / 2.0,
-        },
+        Point3D { x: -size/2.0, y: -size/2.0, z: -size/2.0 },
+        Point3D { x:  size/2.0, y: -size/2.0, z: -size/2.0 },
+        Point3D { x:  size/2.0, y:  size/2.0, z: -size/2.0 },
+        Point3D { x: -size/2.0, y:  size/2.0, z: -size/2.0 },
+        Point3D { x: -size/2.0, y: -size/2.0, z:  size/2.0 },
+        Point3D { x:  size/2.0, y: -size/2.0, z:  size/2.0 },
+        Point3D { x:  size/2.0, y:  size/2.0, z:  size/2.0 },
+        Point3D { x: -size/2.0, y:  size/2.0, z:  size/2.0 },
     ]
 }
 
 /// Creates the faces of the cube, defining vertices and colors
 fn create_faces() -> Vec<Face> {
     vec![
-        Face {
-            vertices: [0, 1, 2, 3],
-            normal: Point3D {
-                x: 0.0,
-                y: 0.0,
-                z: -1.0,
-            },
-            color: Color::Red,
-        },
-        Face {
-            vertices: [5, 4, 7, 6],
-            normal: Point3D {
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            },
-            color: Color::Green,
-        },
-        Face {
-            vertices: [1, 5, 6, 2],
-            normal: Point3D {
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            color: Color::Blue,
-        },
-        Face {
-            vertices: [4, 0, 3, 7],
-            normal: Point3D {
-                x: -1.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            color: Color::Yellow,
-        },
-        Face {
-            vertices: [3, 2, 6, 7],
-            normal: Point3D {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            },
-            color: Color::Magenta,
-        },
-        Face {
-            vertices: [1, 0, 4, 5],
-            normal: Point3D {
-                x: 0.0,
-                y: -1.0,
-                z: 0.0,
-            },
-            color: Color::Cyan,
-        },
+        Face { vertices: [0, 1, 2, 3], normal: Point3D { x: 0.0, y: 0.0, z: -1.0 }, color: Color::Red },
+        Face { vertices: [5, 4, 7, 6], normal: Point3D { x: 0.0, y: 0.0, z: 1.0 }, color: Color::Green },
+        Face { vertices: [1, 5, 6, 2], normal: Point3D { x: 1.0, y: 0.0, z: 0.0 }, color: Color::Blue },
+        Face { vertices: [4, 0, 3, 7], normal: Point3D { x: -1.0, y: 0.0, z: 0.0 }, color: Color::Yellow },
+        Face { vertices: [3, 2, 6, 7], normal: Point3D { x: 0.0, y: 1.0, z: 0.0 }, color: Color::Magenta },
+        Face { vertices: [1, 0, 4, 5], normal: Point3D { x: 0.0, y: -1.0, z: 0.0 }, color: Color::Cyan },
     ]
 }
 
@@ -446,11 +329,7 @@ fn rotate_cube(cube: &[Point3D], angle_x: f32, angle_y: f32) -> Vec<Point3D> {
             let x2 = p.x * angle_y.cos() + z1 * angle_y.sin();
             let z2 = -p.x * angle_y.sin() + z1 * angle_y.cos();
 
-            Point3D {
-                x: x2,
-                y: y1,
-                z: z2,
-            }
+            Point3D { x: x2, y: y1, z: z2 }
         })
         .collect()
 }
@@ -467,20 +346,8 @@ fn project_cube(cube: &[Point3D], center_x: i32, center_y: i32) -> Vec<Point2D> 
 }
 
 /// Draws the cube on the buffer, applying rotation, projection, and shading
-fn draw_cube(
-    buffer: &mut Buffer,
-    projected: &[Point2D],
-    rotated: &[Point3D],
-    faces: &[Face],
-    light_direction: &Point3D,
-    angle_x: f32,
-    angle_y: f32,
-    width: u16,
-    height: u16,
-) -> Result<()> {
-    let mut face_depths: Vec<(usize, f32)> = faces
-        .iter()
-        .enumerate()
+fn draw_cube(buffer: &mut Buffer, projected: &[Point2D], rotated: &[Point3D], faces: &[Face], light_direction: &Point3D, angle_x: f32, angle_y: f32, width: u16, height: u16) -> Result<()> {
+    let mut face_depths: Vec<(usize, f32)> = faces.iter().enumerate()
         .map(|(i, face)| {
             let center = face_center(rotated, &face.vertices);
             (i, center.z)
@@ -497,15 +364,7 @@ fn draw_cube(
         let shade_char = get_shade_char(shade);
         let color = shade_color(&face.color, shade);
 
-        fill_face(
-            buffer,
-            projected,
-            &face.vertices,
-            shade_char,
-            color,
-            width,
-            height,
-        );
+        fill_face(buffer, projected, &face.vertices, shade_char, color, width, height);
     }
 
     Ok(())
@@ -524,23 +383,11 @@ fn rotate_point(point: &Point3D, angle_x: f32, angle_y: f32) -> Point3D {
     let x2 = point.x * cos_y + z1 * sin_y;
     let z2 = -point.x * sin_y + z1 * cos_y;
 
-    Point3D {
-        x: x2,
-        y: y1,
-        z: z2,
-    }
+    Point3D { x: x2, y: y1, z: z2 }
 }
 
 /// Fills a face of the cube with the appropriate shading
-fn fill_face(
-    buffer: &mut Buffer,
-    projected: &[Point2D],
-    vertices: &[usize],
-    shade_char: char,
-    color: Color,
-    width: u16,
-    height: u16,
-) {
+fn fill_face(buffer: &mut Buffer, projected: &[Point2D], vertices: &[usize], shade_char: char, color: Color, width: u16, height: u16) {
     let points: Vec<Point2D> = vertices.iter().map(|&i| projected[i]).collect();
     let points_with_wrap: Vec<Point2D> = points.iter().chain(points.first()).cloned().collect();
 
@@ -567,11 +414,7 @@ fn fill_face(
 
 /// Calculates the center point of a face
 fn face_center(points: &[Point3D], vertices: &[usize]) -> Point3D {
-    let mut center = Point3D {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
+    let mut center = Point3D { x: 0.0, y: 0.0, z: 0.0 };
     for &i in vertices {
         center.x += points[i].x;
         center.y += points[i].y;
@@ -603,8 +446,7 @@ fn dot_product(a: &Point3D, b: &Point3D) -> f32 {
 /// Determines the appropriate shading character based on the light intensity
 fn get_shade_char(shade: f32) -> char {
     let shade_chars = ['░', '▒', '▓', '█'];
-    let index =
-        ((shade * (shade_chars.len() - 1) as f32).round() as usize).min(shade_chars.len() - 1);
+    let index = ((shade * (shade_chars.len() - 1) as f32).round() as usize).min(shade_chars.len() - 1);
     shade_chars[index]
 }
 
@@ -617,46 +459,18 @@ fn shade_color(color: &Color, shade: f32) -> Color {
             let b = (*b as f32 * shade) as u8;
 
             Color::Rgb { r, g, b }
-        }
+        },
         _ => {
             let intensity = (shade * 255.0) as u8;
 
             match color {
-                Color::Red => Color::Rgb {
-                    r: intensity,
-                    g: 0,
-                    b: 0,
-                },
-                Color::Green => Color::Rgb {
-                    r: 0,
-                    g: intensity,
-                    b: 0,
-                },
-                Color::Blue => Color::Rgb {
-                    r: 0,
-                    g: 0,
-                    b: intensity,
-                },
-                Color::Yellow => Color::Rgb {
-                    r: intensity,
-                    g: intensity,
-                    b: 0,
-                },
-                Color::Magenta => Color::Rgb {
-                    r: intensity,
-                    g: 0,
-                    b: intensity,
-                },
-                Color::Cyan => Color::Rgb {
-                    r: 0,
-                    g: intensity,
-                    b: intensity,
-                },
-                _ => Color::Rgb {
-                    r: intensity,
-                    g: intensity,
-                    b: intensity,
-                },
+                Color::Red => Color::Rgb { r: intensity, g: 0, b: 0 },
+                Color::Green => Color::Rgb { r: 0, g: intensity, b: 0 },
+                Color::Blue => Color::Rgb { r: 0, g: 0, b: intensity },
+                Color::Yellow => Color::Rgb { r: intensity, g: intensity, b: 0 },
+                Color::Magenta => Color::Rgb { r: intensity, g: 0, b: intensity },
+                Color::Cyan => Color::Rgb { r: 0, g: intensity, b: intensity },
+                _ => Color::Rgb { r: intensity, g: intensity, b: intensity },
             }
         }
     }
