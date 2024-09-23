@@ -31,7 +31,7 @@
 //!
 use std::io::{stdout, Write, Result};
 use std::time::{Duration, Instant};
-use std::{thread, f32::consts::PI};
+use std::f32::consts::PI;
 use clap::Parser;
 use crossterm::style::Print;
 use crossterm::{
@@ -211,7 +211,7 @@ fn main() -> Result<()> {
     draw_welcome_message(&mut buffer, width, height);
     buffer.render(&mut stdout)?;
 
-    std::thread::sleep(Duration::from_secs(3));
+    precise_sleep(Duration::from_secs(3));
     buffer.clear();
     buffer.render(&mut stdout)?;
 
@@ -258,7 +258,7 @@ fn main() -> Result<()> {
             if width < 10 || height < 10 {
                 execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
                 stdout.flush()?;
-                thread::sleep(Duration::from_millis(100));
+                precise_sleep(Duration::from_millis(100));
                 continue;
             }
 
@@ -320,6 +320,14 @@ fn draw_welcome_message(buffer: &mut Buffer, width: u16, height: u16) {
 
     for (i, ch) in welcome_message.chars().enumerate() {
         buffer.set(x + i, y, ch, Color::White);
+    }
+}
+
+/// A more precise sleep function
+fn precise_sleep(duration: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < duration {
+        std::hint::spin_loop();
     }
 }
 
