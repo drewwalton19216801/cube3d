@@ -18,17 +18,20 @@
 //! - Smooth rotation animation
 //! - Responsive to terminal resizing
 //! - Simple user interface (press 'q' to quit)
+//! - Optional FPS counter and debug information
 //!
 //! ## Dependencies:
 //! - crossterm: For terminal manipulation and event handling
+//! - clap: For command-line argument parsing
 //!
 //! ## Usage:
 //! Run the program and watch the cube rotate. Press 'q' or 'Esc' to exit.
+//! Specify the desired FPS with the `--fps` flag, enable debug info with the `--debug` flag.
 //! The cube will automatically adjust its size based on the terminal dimensions.
 //!
 use std::io::{stdout, Write, Result};
 use std::time::{Duration, Instant};
-use std::{thread, f32::consts::PI};
+use std::f32::consts::PI;
 use clap::Parser;
 use crossterm::style::Print;
 use crossterm::{
@@ -44,13 +47,17 @@ const DISTANCE: f32 = 50.0;
 const ANGLE_INCREMENT: f32 = 0.05;
 const MIN_CUBE_SIZE: f32 = 4.0;
 const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
-const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
+const DEFAULT_FPS: u32 = 30;
+const FPS_SAMPLE_COUNT: usize = 10;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
     debug: bool,
+
+    #[arg(short, long)]
+    fps: Option<u32>,
 }
 
 /// Represents a point in 3D space
@@ -73,6 +80,53 @@ struct Face {
     vertices: [usize; 4],
     normal: Point3D,
     color: Color,
+}
+
+/// FrameTimer for timing and FPS calculation
+struct FrameTimer {
+    target_fps: u32,
+    last_frame_time: Instant,
+    frame_times: Vec<Duration>,
+    frame_count: usize,
+}
+
+impl FrameTimer {
+    fn new(target_fps: Option<u32>) -> Self {
+        FrameTimer {
+            target_fps: target_fps.unwrap_or(DEFAULT_FPS),
+            last_frame_time: Instant::now(),
+            frame_times: Vec::with_capacity(FPS_SAMPLE_COUNT),
+            frame_count: 0,
+        }
+    }
+
+    fn start_frame(&mut self) {
+        self.last_frame_time = Instant::now();
+    }
+
+    fn end_frame(&mut self) -> Option<Duration> {
+        let frame_duration = self.last_frame_time.elapsed();
+        self.frame_times.push(frame_duration);
+        if self.frame_times.len() > FPS_SAMPLE_COUNT {
+            self.frame_times.remove(0);
+        }
+
+        self.frame_count += 1;
+        let target_frame_duration = Duration::from_secs(1) / self.target_fps;
+
+        if frame_duration < target_frame_duration {
+            Some(target_frame_duration - frame_duration)
+        } else {
+            None
+        }
+    }
+
+    fn get_fps(&self) -> f32 {
+        // Calculate the average frame time
+        let total_time = self.frame_times.iter().sum::<Duration>();
+        let avg_time = total_time / self.frame_times.len() as u32;
+        1.0 / (avg_time.as_secs_f32() / self.target_fps as f32) / 1000.0
+    }
 }
 
 /// Buffer for storing and rendering the cube
@@ -157,11 +211,15 @@ fn main() -> Result<()> {
     draw_welcome_message(&mut buffer, width, height);
     buffer.render(&mut stdout)?;
 
-    std::thread::sleep(Duration::from_secs(3));
+    precise_sleep(Duration::from_secs(3));
     buffer.clear();
     buffer.render(&mut stdout)?;
 
+    let mut frame_timer = FrameTimer::new(args.fps);
+
     loop {
+        frame_timer.start_frame();
+
         if poll(Duration::from_millis(1))? {
             match read()? {
                 Event::Key(key_event) => {
@@ -196,11 +254,11 @@ fn main() -> Result<()> {
 
         let elapsed = now.duration_since(last_frame);
 
-        if elapsed >= FRAME_DURATION {
+        if elapsed >= frame_timer.end_frame().unwrap_or(Duration::from_secs(0)) {
             if width < 10 || height < 10 {
                 execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
                 stdout.flush()?;
-                thread::sleep(Duration::from_millis(100));
+                precise_sleep(Duration::from_millis(100));
                 continue;
             }
 
@@ -227,11 +285,10 @@ fn main() -> Result<()> {
                 }
 
                 // Draw FPS (as a float number to the hundredths directly below the version
-                let fps_string = format!("FPS: {:.2}", 1.0 / elapsed.as_secs_f32());
-                let fps = fps_string.trim_end_matches(".0");
+                let fps = frame_timer.get_fps();
                 let fps_x = 0;
                 let fps_y = version_y + 1;
-                for (i, ch) in fps.chars().enumerate() {
+                for (i, ch) in fps.to_string().chars().enumerate() {
                     buffer.set((fps_x + i as u16).into(), fps_y, ch, Color::White);
                 }
             }
@@ -248,8 +305,6 @@ fn main() -> Result<()> {
 
             last_frame = now;
         }
-
-        thread::sleep(Duration::from_millis(1));
     }
 
     execute!(stdout, Show)?;
@@ -265,6 +320,14 @@ fn draw_welcome_message(buffer: &mut Buffer, width: u16, height: u16) {
 
     for (i, ch) in welcome_message.chars().enumerate() {
         buffer.set(x + i, y, ch, Color::White);
+    }
+}
+
+/// A more precise sleep function
+fn precise_sleep(duration: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < duration {
+        std::hint::spin_loop();
     }
 }
 
