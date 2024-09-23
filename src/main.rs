@@ -1,34 +1,35 @@
 //! # 3D Cube Renderer for Terminal
-//! 
+//!
 //! This program renders a rotating 3D cube in the terminal using ASCII characters
 //! and ANSI colors. It demonstrates basic 3D graphics concepts such as:
-//! 
+//!
 //! - 3D to 2D projection
 //! - Rotation in 3D space
 //! - Face culling
 //! - Simple lighting and shading
-//! 
+//!
 //! The cube rotates continuously, with each face colored differently and shaded
 //! based on its orientation relative to a light source. The program handles
 //! terminal resizing and provides a smooth animation at approximately 30 FPS.
-//! 
+//!
 //! ## Features:
 //! - Real-time 3D rendering in the terminal
 //! - Colored cube faces with dynamic shading
 //! - Smooth rotation animation
 //! - Responsive to terminal resizing
 //! - Simple user interface (press 'q' to quit)
-//! 
+//!
 //! ## Dependencies:
 //! - crossterm: For terminal manipulation and event handling
-//! 
+//!
 //! ## Usage:
 //! Run the program and watch the cube rotate. Press 'q' or 'Esc' to exit.
 //! The cube will automatically adjust its size based on the terminal dimensions.
-//! 
+//!
 use std::io::{stdout, Write, Result};
 use std::time::{Duration, Instant};
 use std::{thread, f32::consts::PI};
+use clap::Parser;
 use crossterm::style::Print;
 use crossterm::{
     execute,
@@ -44,6 +45,13 @@ const ANGLE_INCREMENT: f32 = 0.05;
 const MIN_CUBE_SIZE: f32 = 4.0;
 const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
 const FRAME_DURATION: Duration = Duration::from_millis(33); // ~30 FPS
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    debug: bool,
+}
 
 /// Represents a point in 3D space
 #[derive(Clone, Copy)]
@@ -128,6 +136,8 @@ impl Buffer {
 
 /// Main function to run the 3D cube animation
 fn main() -> Result<()> {
+    let args = Args::parse();
+
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, Hide, Clear(ClearType::All))?;
@@ -205,6 +215,26 @@ fn main() -> Result<()> {
 
             buffer.clear();
             draw_cube(&mut buffer, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
+            if args.debug {
+                // Draw program version and FPS at the top left of the screen
+                let prg_name = env!("CARGO_PKG_NAME");
+                let version = env!("CARGO_PKG_VERSION");
+                let version_x = 0;
+                let version_y = 0;
+                let version_string = format!("{} v{}", prg_name, version);
+                for (i, ch) in version_string.chars().enumerate() {
+                    buffer.set((version_x + i as u16).into(), version_y, ch, Color::White);
+                }
+
+                // Draw FPS (as a float number to the hundredths directly below the version
+                let fps_string = format!("{:.2}", 1.0 / elapsed.as_secs_f32());
+                let fps = fps_string.trim_end_matches(".0");
+                let fps_x = 0;
+                let fps_y = version_y + 1;
+                for (i, ch) in fps.chars().enumerate() {
+                    buffer.set((fps_x + i as u16).into(), fps_y, ch, Color::White);
+                }
+            }
             buffer.render(&mut stdout)?;
 
             angle_x += ANGLE_INCREMENT;
