@@ -1,22 +1,12 @@
-//! # 3D Cube Renderer
-//! 
-//! This program renders a 3D cube using the Druid GUI framework. The cube rotates
-//! continuously and features shaded faces with basic lighting effects. It demonstrates
-//! 3D graphics concepts such as projection, rotation, and simple lighting calculations.
-//! 
-//! ## Features:
-//! - Rotating 3D cube visualization
-//! - Shaded faces with basic lighting
-//! - Debug mode for displaying additional information
-//! - Command-line argument parsing for enabling debug mode
-
 use clap::Parser;
-use druid::kurbo::{Point, BezPath};
+use druid::kurbo::Point;
 use druid::text::FontFamily;
 use druid::widget::prelude::*;
-use druid::{AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc};
+use druid::{
+    piet::{InterpolationMode, Text, TextLayoutBuilder},
+    AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc,
+};
 use std::f64::consts::PI;
-use druid::piet::{Text, TextLayoutBuilder};
 use std::time::Instant;
 
 /// Application state
@@ -73,11 +63,24 @@ impl Widget<AppState> for CubeWidget {
         }
     }
 
-    fn lifecycle(&mut self, _ctx: &mut LifeCycleCtx, _event: &LifeCycle, _data: &AppState, _env: &Env) {}
+    fn lifecycle(
+        &mut self,
+        _ctx: &mut LifeCycleCtx,
+        _event: &LifeCycle,
+        _data: &AppState,
+        _env: &Env,
+    ) {
+    }
     fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &AppState, _data: &AppState, _env: &Env) {}
 
     /// Determines the layout constraints for the cube widget
-    fn layout(&mut self, _layout_ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &AppState, _env: &Env) -> Size {
+    fn layout(
+        &mut self,
+        _layout_ctx: &mut LayoutCtx,
+        bc: &BoxConstraints,
+        _data: &AppState,
+        _env: &Env,
+    ) -> Size {
         bc.max()
     }
 
@@ -94,20 +97,35 @@ impl Widget<AppState> for CubeWidget {
         }
 
         let size = ctx.size();
+        let width = size.width as usize;
+        let height = size.height as usize;
         let center = Point::new(size.width / 2.0, size.height / 2.0);
         let scale = size.height.min(size.width) / 4.0;
 
+        // Create pixel buffer and z-buffer
+        let mut pixel_data = vec![0u8; width * height * 4];
+        let mut z_buffer = vec![std::f64::INFINITY; width * height];
+
         // Define cube vertices
         let vertices = [
-            (-1.0, -1.0, -1.0), (1.0, -1.0, -1.0), (1.0, 1.0, -1.0), (-1.0, 1.0, -1.0),
-            (-1.0, -1.0, 1.0), (1.0, -1.0, 1.0), (1.0, 1.0, 1.0), (-1.0, 1.0, 1.0),
+            (-1.0, -1.0, -1.0),
+            (1.0, -1.0, -1.0),
+            (1.0, 1.0, -1.0),
+            (-1.0, 1.0, -1.0),
+            (-1.0, -1.0, 1.0),
+            (1.0, -1.0, 1.0),
+            (1.0, 1.0, 1.0),
+            (-1.0, 1.0, 1.0),
         ];
 
         // Define cube faces (each face is defined by 4 vertex indices)
         let faces = [
-            (0, 1, 2, 3), (5, 4, 7, 6), // front and back
-            (4, 0, 3, 7), (1, 5, 6, 2), // left and right
-            (4, 5, 1, 0), (3, 2, 6, 7), // top and bottom
+            (0, 1, 2, 3),
+            (5, 4, 7, 6),
+            (4, 0, 3, 7),
+            (1, 5, 6, 2),
+            (4, 5, 1, 0),
+            (3, 2, 6, 7),
         ];
 
         // Define face colors
@@ -120,8 +138,8 @@ impl Widget<AppState> for CubeWidget {
             Color::rgb8(0, 255, 255), // Cyan
         ];
 
-        // Light source position (fixed in 3D space) is in the center of the cube, slightly offset to the left
-        let light_pos = [center.x - 0.5, center.y, center.x];
+        // Light source position in 3D space
+        let light_pos = [2.0, 2.0, -5.0];
 
         // Rotation matrices
         let (sin_a, cos_a) = data.angle.sin_cos();
@@ -136,43 +154,89 @@ impl Widget<AppState> for CubeWidget {
             [0.0, sin_a, cos_a],
         ];
 
-        // Project and transform 3D points to 2D
-        let transformed_vertices: Vec<[f64; 3]> = vertices.iter().map(|&(x, y, z)| {
-            let [x, y, z] = multiply_matrix_vector(&rotation_y, &[x, y, z]);
-            multiply_matrix_vector(&rotation_x, &[x, y, z])
-        }).collect();
+        // Transform and project vertices
+        let transformed_vertices: Vec<[f64; 3]> = vertices
+            .iter()
+            .map(|&(x, y, z)| {
+                let [x, y, z] = multiply_matrix_vector(&rotation_y, &[x, y, z]);
+                multiply_matrix_vector(&rotation_x, &[x, y, z])
+            })
+            .collect();
 
-        let projected_vertices: Vec<Point> = transformed_vertices.iter().map(|&[x, y, _z]| {
-            Point::new(x * scale + center.x, y * scale + center.y)
-        }).collect();
-
-        // Calculate face normals and sort faces by z-depth
-        let mut face_data: Vec<(usize, [f64; 3], f64)> = faces.iter().enumerate().map(|(i, &(a, b, c, d))| {
-            let normal = calculate_normal(&transformed_vertices[a], &transformed_vertices[b], &transformed_vertices[c]);
-            let avg_z = (transformed_vertices[a][2] + transformed_vertices[b][2] + transformed_vertices[c][2] + transformed_vertices[d][2]) / 4.0;
-            (i, normal, avg_z)
-        }).collect();
-        face_data.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
-
-        // Draw faces
-        for (face_index, normal, _) in face_data {
-            let (a, b, c, d) = faces[face_index];
-            let mut path = BezPath::new();
-            path.move_to(projected_vertices[a]);
-            path.line_to(projected_vertices[b]);
-            path.line_to(projected_vertices[c]);
-            path.line_to(projected_vertices[d]);
-            path.close_path();
-
-            // Calculate lighting
-            let light_intensity = calculate_light_intensity(&normal, &light_pos);
-            let base_color = face_colors[face_index];
-            let shaded_color = apply_lighting(base_color, light_intensity);
-
-            ctx.fill(path, &shaded_color);
+        // Compute vertex normals
+        let mut vertex_normals = vec![[0.0; 3]; vertices.len()];
+        for &(a, b, c, d) in faces.iter() {
+            let normal = calculate_normal(
+                &transformed_vertices[a],
+                &transformed_vertices[b],
+                &transformed_vertices[c],
+            );
+            for &index in &[a, b, c, d] {
+                vertex_normals[index][0] += normal[0];
+                vertex_normals[index][1] += normal[1];
+                vertex_normals[index][2] += normal[2];
+            }
+        }
+        for normal in vertex_normals.iter_mut() {
+            let length = (normal[0] * normal[0]
+                + normal[1] * normal[1]
+                + normal[2] * normal[2])
+                .sqrt();
+            normal[0] /= length;
+            normal[1] /= length;
+            normal[2] /= length;
         }
 
-        // Add debug info to the top left if debug mode is enabled
+        // Create vertices with normals and screen positions
+        let vertices_with_normals: Vec<Vertex> = transformed_vertices
+            .iter()
+            .zip(vertex_normals.iter())
+            .map(|(&position, &normal)| {
+                let screen_x = position[0] * scale + center.x;
+                let screen_y = position[1] * scale + center.y;
+                Vertex {
+                    position,
+                    screen_position: [screen_x, screen_y],
+                    normal,
+                }
+            })
+            .collect();
+
+        // Draw faces
+        for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
+            // Triangle 1: a, b, c
+            draw_triangle(
+                &vertices_with_normals[a],
+                &vertices_with_normals[b],
+                &vertices_with_normals[c],
+                &mut pixel_data,
+                &mut z_buffer,
+                width,
+                height,
+                &light_pos,
+                face_colors[face_index],
+            );
+            // Triangle 2: a, c, d
+            draw_triangle(
+                &vertices_with_normals[a],
+                &vertices_with_normals[c],
+                &vertices_with_normals[d],
+                &mut pixel_data,
+                &mut z_buffer,
+                width,
+                height,
+                &light_pos,
+                face_colors[face_index],
+            );
+        }
+
+        // Create and draw the image
+        let image = ctx
+            .make_image(width, height, &pixel_data, druid::piet::ImageFormat::RgbaSeparate)
+            .unwrap();
+        ctx.draw_image(&image, size.to_rect(), InterpolationMode::NearestNeighbor);
+
+        // Add debug info if debug mode is enabled
         if data.debug {
             // Draw program name and version
             let text = format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
@@ -197,7 +261,10 @@ impl Widget<AppState> for CubeWidget {
             ctx.draw_text(&text_layout, (10.0, 30.0));
 
             // Draw light position
-            let text = format!("Light: ({:.2}, {:.2}, {:.2})", light_pos[0], light_pos[1], light_pos[2]);
+            let text = format!(
+                "Light: ({:.2}, {:.2}, {:.2})",
+                light_pos[0], light_pos[1], light_pos[2]
+            );
             let text_layout = ctx
                 .text()
                 .new_text_layout(text)
@@ -219,6 +286,117 @@ impl Widget<AppState> for CubeWidget {
             ctx.draw_text(&text_layout, (10.0, 70.0));
         }
     }
+}
+
+/// Vertex structure with position, screen position, and normal
+struct Vertex {
+    position: [f64; 3],
+    screen_position: [f64; 2],
+    normal: [f64; 3],
+}
+
+/// Draws a triangle with per-pixel lighting
+fn draw_triangle(
+    v0: &Vertex,
+    v1: &Vertex,
+    v2: &Vertex,
+    pixel_data: &mut [u8],
+    z_buffer: &mut [f64],
+    width: usize,
+    height: usize,
+    light_pos: &[f64; 3],
+    base_color: Color,
+) {
+    // Compute bounding box of the triangle
+    let min_x = v0
+        .screen_position[0]
+        .min(v1.screen_position[0])
+        .min(v2.screen_position[0])
+        .floor()
+        .max(0.0) as usize;
+    let max_x = v0
+        .screen_position[0]
+        .max(v1.screen_position[0])
+        .max(v2.screen_position[0])
+        .ceil()
+        .min(width as f64 - 1.0) as usize;
+    let min_y = v0
+        .screen_position[1]
+        .min(v1.screen_position[1])
+        .min(v2.screen_position[1])
+        .floor()
+        .max(0.0) as usize;
+    let max_y = v0
+        .screen_position[1]
+        .max(v1.screen_position[1])
+        .max(v2.screen_position[1])
+        .ceil()
+        .min(height as f64 - 1.0) as usize;
+
+    // Precompute area of the triangle
+    let area = edge_function(&v0.screen_position, &v1.screen_position, &v2.screen_position);
+
+    // For each pixel in the bounding box
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            let px = x as f64 + 0.5;
+            let py = y as f64 + 0.5;
+            let p = [px, py];
+
+            let w0 = edge_function(&v1.screen_position, &v2.screen_position, &p);
+            let w1 = edge_function(&v2.screen_position, &v0.screen_position, &p);
+            let w2 = edge_function(&v0.screen_position, &v1.screen_position, &p);
+
+            if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                // Inside triangle
+                // Normalize barycentric coordinates
+                let w0 = w0 / area;
+                let w1 = w1 / area;
+                let w2 = w2 / area;
+
+                // Interpolate position
+                let px3d = v0.position[0] * w0 + v1.position[0] * w1 + v2.position[0] * w2;
+                let py3d = v0.position[1] * w0 + v1.position[1] * w1 + v2.position[1] * w2;
+                let pz3d = v0.position[2] * w0 + v1.position[2] * w1 + v2.position[2] * w2;
+
+                // Depth test
+                let offset = y * width + x;
+                if pz3d < z_buffer[offset] {
+                    z_buffer[offset] = pz3d;
+
+                    // Interpolate normal
+                    let nx = v0.normal[0] * w0 + v1.normal[0] * w1 + v2.normal[0] * w2;
+                    let ny = v0.normal[1] * w0 + v1.normal[1] * w1 + v2.normal[1] * w2;
+                    let nz = v0.normal[2] * w0 + v1.normal[2] * w1 + v2.normal[2] * w2;
+                    let length = (nx * nx + ny * ny + nz * nz).sqrt();
+                    let interpolated_normal = [nx / length, ny / length, nz / length];
+
+                    // Compute lighting
+                    let light_intensity = calculate_light_intensity(
+                        &interpolated_normal,
+                        &[px3d, py3d, pz3d],
+                        light_pos,
+                    );
+
+                    // Compute shaded color
+                    let shaded_color = apply_lighting(base_color.clone(), light_intensity);
+
+                    // Set pixel color
+                    let pixel_offset = offset * 4;
+                    let (r, g, b, a) = shaded_color.as_rgba8();
+                    pixel_data[pixel_offset] = r;
+                    pixel_data[pixel_offset + 1] = g;
+                    pixel_data[pixel_offset + 2] = b;
+                    pixel_data[pixel_offset + 3] = a;
+                }
+            }
+        }
+    }
+}
+
+/// Edge function used in rasterization
+fn edge_function(a: &[f64; 2], b: &[f64; 2], c: &[f64; 2]) -> f64 {
+    (c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])
 }
 
 /// Multiplies a 3x3 matrix by a 3-dimensional vector
@@ -246,16 +424,28 @@ fn calculate_normal(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> [f64; 3] {
 }
 
 /// Calculates the light intensity based on the normal vector and light position
-fn calculate_light_intensity(normal: &[f64; 3], light_pos: &[f64; 3]) -> f64 {
-    let light_dir = normalize(light_pos);
-    let dot_product = normal[0] * light_dir[0] + normal[1] * light_dir[1] + normal[2] * light_dir[2];
+fn calculate_light_intensity(
+    normal: &[f64; 3],
+    position: &[f64; 3],
+    light_pos: &[f64; 3],
+) -> f64 {
+    let light_dir = [
+        light_pos[0] - position[0],
+        light_pos[1] - position[1],
+        light_pos[2] - position[2],
+    ];
+    let length = (light_dir[0] * light_dir[0]
+        + light_dir[1] * light_dir[1]
+        + light_dir[2] * light_dir[2])
+        .sqrt();
+    let light_dir = [
+        light_dir[0] / length,
+        light_dir[1] / length,
+        light_dir[2] / length,
+    ];
+    let dot_product =
+        normal[0] * light_dir[0] + normal[1] * light_dir[1] + normal[2] * light_dir[2];
     dot_product.max(0.1) // Ensure a minimum ambient light
-}
-
-/// Normalizes a 3-dimensional vector
-fn normalize(v: &[f64; 3]) -> [f64; 3] {
-    let length = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    [v[0] / length, v[1] / length, v[2] / length]
 }
 
 /// Applies lighting to a color
@@ -271,13 +461,15 @@ pub fn main() -> Result<(), PlatformError> {
     let args = Args::parse();
 
     let main_window = WindowDesc::new(CubeWidget::new())
-        .title(LocalizedString::new("3D Cube with Improved Shaded Faces"))
+        .title(LocalizedString::new("3D Cube with Per-Pixel Lighting"))
         .window_size((400.0, 400.0));
 
-    let initial_state = AppState { angle: 0.0, debug: args.debug };
+    let initial_state = AppState {
+        angle: 0.0,
+        debug: args.debug,
+    };
 
-    AppLauncher::with_window(main_window)
-        .launch(initial_state)?;
+    AppLauncher::with_window(main_window).launch(initial_state)?;
 
     Ok(())
 }
