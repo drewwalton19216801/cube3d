@@ -9,9 +9,13 @@ A 3D cube renderer with per-pixel lighting using Rust and the Druid GUI framewor
 ## Features
 
 - **Per-Pixel Lighting:** Implements per-pixel lighting for realistic shading across the cube's surface.
+- **World Space Lighting:** Displays the light position in world space.
+- **Wireframe Mode:** Renders the cube in wireframe mode.
 - **Rotating 3D Cube:** Continuously rotates a 3D cube around its axis.
 - **Debug Mode:** Displays frames per second (FPS), rotation angle, light position, and program information.
 - **Mouse Zoom:** Zoom the cube in and out using the mouse wheel.
+- **Mouse Rotation:** Rotate the cube around its axis using the mouse.
+- **Mouse Translation:** Translate the cube using the mouse.
 
 ## Prerequisites
 
