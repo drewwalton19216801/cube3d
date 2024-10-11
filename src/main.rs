@@ -2,7 +2,7 @@ use druid::kurbo::Point;
 use druid::text::FontFamily;
 use druid::widget::prelude::*;
 use druid::{
-    piet::{InterpolationMode, Text, TextLayoutBuilder},
+    piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
     AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc,
 };
 use std::f64::consts::PI;
@@ -15,6 +15,8 @@ struct AppState {
     angle: f64,
     /// Enable debug mode
     debug: bool,
+    /// Simulation paused
+    paused: bool,
 }
 
 /// 3D cube widget
@@ -44,18 +46,22 @@ impl Widget<AppState> for CubeWidget {
                 ctx.request_focus();
             }
             Event::Timer(_) => {
-                data.angle += 0.02;
-                if data.angle > 2.0 * PI {
-                    data.angle -= 2.0 * PI;
+                if !data.paused {
+                    data.angle += 0.02;
+                    if data.angle > 2.0 * PI {
+                        data.angle -= 2.0 * PI;
+                    }
+                    ctx.request_paint();
                 }
                 ctx.request_timer(std::time::Duration::from_millis(16));
-                ctx.request_paint();
             }
             Event::KeyDown(key_event) => {
                 if let druid::keyboard_types::Key::Character(s) = &key_event.key {
                     if s == "d" || s == "D" {
                         data.debug = !data.debug;
                         ctx.request_paint();
+                    } else if s == "p" || s == "P" {
+                        data.paused = !data.paused;
                     }
                 }
             }
@@ -72,7 +78,6 @@ impl Widget<AppState> for CubeWidget {
     ) {
     }
     fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &AppState, _data: &AppState, _env: &Env) {}
-
     /// Determines the layout constraints for the cube widget
     fn layout(
         &mut self,
@@ -285,6 +290,24 @@ impl Widget<AppState> for CubeWidget {
                 .unwrap();
             ctx.draw_text(&text_layout, (10.0, 70.0));
         }
+
+        // Display 'Paused' if the simulation is paused
+        if data.paused {
+            let text = "Paused";
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 24.0)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            let text_size = text_layout.size(); // The 'size()' method is now recognized
+            let pos = (
+                (size.width - text_size.width) / 2.0,
+                (size.height - text_size.height) / 2.0,
+            );
+            ctx.draw_text(&text_layout, pos);
+        }
     }
 }
 
@@ -465,6 +488,7 @@ pub fn main() -> Result<(), PlatformError> {
     let initial_state = AppState {
         angle: 0.0,
         debug: false,
+        paused: false,
     };
 
     AppLauncher::with_window(main_window).launch(initial_state)?;
