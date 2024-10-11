@@ -12,8 +12,10 @@ use std::time::Instant;
 /// Application state
 #[derive(Clone, Data)]
 struct AppState {
-    /// Current rotation angle of the cube
-    angle: f64,
+    /// Current rotation angle around the X-axis
+    angle_x: f64,
+    /// Current rotation angle around the Y-axis
+    angle_y: f64,
     /// Enable debug mode
     debug: bool,
     /// Simulation paused
@@ -21,7 +23,7 @@ struct AppState {
     /// Wireframe mode enabled
     wireframe: bool,
     /// Zoom level
-    zoom: f64, // New field for zoom level
+    zoom: f64,
 }
 
 /// 3D cube widget
@@ -29,6 +31,10 @@ struct CubeWidget {
     frames_since_last_update: usize,
     last_fps_calculation: Instant,
     fps: f64,
+    /// Is the user currently dragging?
+    dragging: bool,
+    /// Last mouse position
+    last_mouse_pos: Point,
 }
 
 impl CubeWidget {
@@ -37,6 +43,8 @@ impl CubeWidget {
             frames_since_last_update: 0,
             last_fps_calculation: Instant::now(),
             fps: 0.0,
+            dragging: false,
+            last_mouse_pos: Point::ZERO,
         }
     }
 }
@@ -51,11 +59,9 @@ impl Widget<AppState> for CubeWidget {
                 ctx.request_focus();
             }
             Event::Timer(_) => {
-                if !data.paused {
-                    data.angle += 0.02;
-                    if data.angle > 2.0 * PI {
-                        data.angle -= 2.0 * PI;
-                    }
+                if !data.paused && !self.dragging {
+                    data.angle_x += 0.01;
+                    data.angle_y += 0.02;
                     ctx.request_paint();
                 }
                 ctx.request_timer(std::time::Duration::from_millis(16));
@@ -76,6 +82,25 @@ impl Widget<AppState> for CubeWidget {
                         ctx.request_paint();
                     }
                 }
+            }
+            Event::MouseDown(mouse_event) => {
+                self.dragging = true;
+                self.last_mouse_pos = mouse_event.pos;
+                ctx.set_active(true); // Capture mouse events
+            }
+            Event::MouseMove(mouse_event) => {
+                if self.dragging {
+                    let delta = mouse_event.pos - self.last_mouse_pos;
+                    // Update rotation angles based on mouse movement
+                    data.angle_x += delta.y * 0.01; // Adjust sensitivity as needed
+                    data.angle_y += delta.x * 0.01;
+                    self.last_mouse_pos = mouse_event.pos;
+                    ctx.request_paint();
+                }
+            }
+            Event::MouseUp(_mouse_event) => {
+                self.dragging = false;
+                ctx.set_active(false);
             }
             Event::Wheel(wheel_event) => {
                 let delta = wheel_event.wheel_delta.y;
@@ -181,24 +206,27 @@ impl Widget<AppState> for CubeWidget {
         let light_pos = [2.0, 2.0, -5.0];
 
         // Rotation matrices
-        let (sin_a, cos_a) = data.angle.sin_cos();
-        let rotation_y = [
-            [cos_a, 0.0, sin_a],
-            [0.0, 1.0, 0.0],
-            [-sin_a, 0.0, cos_a],
-        ];
+        let (sin_x, cos_x) = data.angle_x.sin_cos();
+        let (sin_y, cos_y) = data.angle_y.sin_cos();
+
         let rotation_x = [
             [1.0, 0.0, 0.0],
-            [0.0, cos_a, -sin_a],
-            [0.0, sin_a, cos_a],
+            [0.0, cos_x, -sin_x],
+            [0.0, sin_x, cos_x],
+        ];
+
+        let rotation_y = [
+            [cos_y, 0.0, sin_y],
+            [0.0, 1.0, 0.0],
+            [-sin_y, 0.0, cos_y],
         ];
 
         // Transform and project vertices
         let transformed_vertices: Vec<[f64; 3]> = vertices
             .iter()
             .map(|&(x, y, z)| {
-                let [x, y, z] = multiply_matrix_vector(&rotation_y, &[x, y, z]);
-                multiply_matrix_vector(&rotation_x, &[x, y, z])
+                let rotated = multiply_matrix_vector(&rotation_y, &[x, y, z]);
+                multiply_matrix_vector(&rotation_x, &rotated)
             })
             .collect();
 
@@ -306,8 +334,8 @@ impl Widget<AppState> for CubeWidget {
                 .unwrap();
             ctx.draw_text(&text_layout, (10.0, 10.0));
 
-            // Draw angle
-            let text = format!("Angle: {:.2}", data.angle);
+            // Draw angles
+            let text = format!("Angle X: {:.2}, Angle Y: {:.2}", data.angle_x, data.angle_y);
             let text_layout = ctx
                 .text()
                 .new_text_layout(text)
@@ -603,7 +631,8 @@ pub fn main() -> Result<(), PlatformError> {
         .window_size((400.0, 400.0));
 
     let initial_state = AppState {
-        angle: 0.0,
+        angle_x: 0.0,
+        angle_y: 0.0,
         debug: false,
         paused: false,
         wireframe: false,
