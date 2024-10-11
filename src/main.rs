@@ -20,6 +20,8 @@ struct AppState {
     paused: bool,
     /// Wireframe mode enabled
     wireframe: bool,
+    /// Zoom level
+    zoom: f64, // New field for zoom level
 }
 
 /// 3D cube widget
@@ -75,6 +77,12 @@ impl Widget<AppState> for CubeWidget {
                     }
                 }
             }
+            Event::Wheel(wheel_event) => {
+                let delta = wheel_event.wheel_delta.y;
+                data.zoom *= 1.0 + delta * 0.001;
+                data.zoom = data.zoom.clamp(0.1, 10.0); // Clamp zoom level
+                ctx.request_paint();
+            }
             _ => {}
         }
     }
@@ -115,7 +123,7 @@ impl Widget<AppState> for CubeWidget {
         let width = size.width as usize;
         let height = size.height as usize;
         let center = Point::new(size.width / 2.0, size.height / 2.0);
-        let scale = size.height.min(size.width) / 4.0;
+        let scale = (size.height.min(size.width) / 4.0) * data.zoom; // Adjusted scale
 
         // Create pixel buffer and z-buffer
         let mut pixel_data = vec![0u8; width * height * 4];
@@ -333,6 +341,17 @@ impl Widget<AppState> for CubeWidget {
                 .build()
                 .unwrap();
             ctx.draw_text(&text_layout, (10.0, 70.0));
+
+            // Draw zoom level
+            let text = format!("Zoom: {:.2}", data.zoom);
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 12.0)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            ctx.draw_text(&text_layout, (10.0, 90.0));
         }
 
         // Display 'Paused' if the simulation is paused
@@ -588,6 +607,7 @@ pub fn main() -> Result<(), PlatformError> {
         debug: false,
         paused: false,
         wireframe: false,
+        zoom: 1.0, // Initialize zoom level
     };
 
     AppLauncher::with_window(main_window).launch(initial_state)?;
