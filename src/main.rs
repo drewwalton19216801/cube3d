@@ -18,6 +18,8 @@ struct AppState {
     debug: bool,
     /// Simulation paused
     paused: bool,
+    /// Wireframe mode enabled
+    wireframe: bool,
 }
 
 /// 3D cube widget
@@ -67,6 +69,9 @@ impl Widget<AppState> for CubeWidget {
                     } else if s == "q" || s == "Q" {
                         // Submit the QUIT_APP command to exit the application
                         ctx.submit_command(commands::QUIT_APP);
+                    } else if s == "w" || s == "W" {
+                        data.wireframe = !data.wireframe;
+                        ctx.request_paint();
                     }
                 }
             }
@@ -118,14 +123,14 @@ impl Widget<AppState> for CubeWidget {
 
         // Define cube vertices
         let vertices = [
-            (-1.0, -1.0, -1.0),
-            (1.0, -1.0, -1.0),
-            (1.0, 1.0, -1.0),
-            (-1.0, 1.0, -1.0),
-            (-1.0, -1.0, 1.0),
-            (1.0, -1.0, 1.0),
-            (1.0, 1.0, 1.0),
-            (-1.0, 1.0, 1.0),
+            (-1.0, -1.0, -1.0), // 0
+            (1.0, -1.0, -1.0),  // 1
+            (1.0, 1.0, -1.0),   // 2
+            (-1.0, 1.0, -1.0),  // 3
+            (-1.0, -1.0, 1.0),  // 4
+            (1.0, -1.0, 1.0),   // 5
+            (1.0, 1.0, 1.0),    // 6
+            (-1.0, 1.0, 1.0),   // 7
         ];
 
         // Define cube faces (each face is defined by 4 vertex indices)
@@ -136,6 +141,22 @@ impl Widget<AppState> for CubeWidget {
             (1, 5, 6, 2),
             (4, 5, 1, 0),
             (3, 2, 6, 7),
+        ];
+
+        // Define cube edges (pairs of vertex indices)
+        let edges = [
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0), // Front face
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4), // Back face
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7), // Connecting edges
         ];
 
         // Define face colors
@@ -212,32 +233,50 @@ impl Widget<AppState> for CubeWidget {
             })
             .collect();
 
-        // Draw faces
-        for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
-            // Triangle 1: a, b, c
-            draw_triangle(
-                &vertices_with_normals[a],
-                &vertices_with_normals[b],
-                &vertices_with_normals[c],
-                &mut pixel_data,
-                &mut z_buffer,
-                width,
-                height,
-                &light_pos,
-                face_colors[face_index],
-            );
-            // Triangle 2: a, c, d
-            draw_triangle(
-                &vertices_with_normals[a],
-                &vertices_with_normals[c],
-                &vertices_with_normals[d],
-                &mut pixel_data,
-                &mut z_buffer,
-                width,
-                height,
-                &light_pos,
-                face_colors[face_index],
-            );
+        if data.wireframe {
+            // Draw edges
+            for &(start, end) in &edges {
+                let v0 = &vertices_with_normals[start];
+                let v1 = &vertices_with_normals[end];
+                draw_line(
+                    v0.screen_position[0],
+                    v0.screen_position[1],
+                    v1.screen_position[0],
+                    v1.screen_position[1],
+                    &mut pixel_data,
+                    width,
+                    height,
+                    Color::WHITE,
+                );
+            }
+        } else {
+            // Draw faces
+            for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
+                // Triangle 1: a, b, c
+                draw_triangle(
+                    &vertices_with_normals[a],
+                    &vertices_with_normals[b],
+                    &vertices_with_normals[c],
+                    &mut pixel_data,
+                    &mut z_buffer,
+                    width,
+                    height,
+                    &light_pos,
+                    face_colors[face_index],
+                );
+                // Triangle 2: a, c, d
+                draw_triangle(
+                    &vertices_with_normals[a],
+                    &vertices_with_normals[c],
+                    &vertices_with_normals[d],
+                    &mut pixel_data,
+                    &mut z_buffer,
+                    width,
+                    height,
+                    &light_pos,
+                    face_colors[face_index],
+                );
+            }
         }
 
         // Create and draw the image
@@ -490,6 +529,54 @@ fn apply_lighting(color: Color, intensity: f64) -> Color {
     Color::rgb8(r, g, b)
 }
 
+/// Draws a line between two points in the pixel buffer using Bresenham's algorithm
+fn draw_line(
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+    pixel_data: &mut [u8],
+    width: usize,
+    height: usize,
+    color: Color,
+) {
+    let (mut x0, mut y0, x1, y1) = (
+        x0.round() as isize,
+        y0.round() as isize,
+        x1.round() as isize,
+        y1.round() as isize,
+    );
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy; // error value e_xy
+
+    loop {
+        if x0 >= 0 && x0 < width as isize && y0 >= 0 && y0 < height as isize {
+            let offset = (y0 as usize * width + x0 as usize) * 4;
+            let (r, g, b, a) = color.as_rgba8();
+            pixel_data[offset] = r;
+            pixel_data[offset + 1] = g;
+            pixel_data[offset + 2] = b;
+            pixel_data[offset + 3] = a;
+        }
+
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
 /// Main function
 pub fn main() -> Result<(), PlatformError> {
     let main_window = WindowDesc::new(CubeWidget::new())
@@ -500,6 +587,7 @@ pub fn main() -> Result<(), PlatformError> {
         angle: 0.0,
         debug: false,
         paused: false,
+        wireframe: false,
     };
 
     AppLauncher::with_window(main_window).launch(initial_state)?;
