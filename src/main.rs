@@ -1,540 +1,508 @@
-//! # 3D Cube Renderer for Terminal
-//!
-//! This program renders a rotating 3D cube in the terminal using ASCII characters
-//! and ANSI colors. It demonstrates basic 3D graphics concepts such as:
-//!
-//! - 3D to 2D projection
-//! - Rotation in 3D space
-//! - Face culling
-//! - Simple lighting and shading
-//!
-//! The cube rotates continuously, with each face colored differently and shaded
-//! based on its orientation relative to a light source. The program handles
-//! terminal resizing and provides a smooth animation at approximately 30 FPS.
-//!
-//! ## Features:
-//! - Real-time 3D rendering in the terminal
-//! - Colored cube faces with dynamic shading
-//! - Smooth rotation animation
-//! - Responsive to terminal resizing
-//! - Simple user interface (press 'q' to quit)
-//! - Optional FPS counter and debug information
-//!
-//! ## Dependencies:
-//! - crossterm: For terminal manipulation and event handling
-//! - clap: For command-line argument parsing
-//!
-//! ## Usage:
-//! Run the program and watch the cube rotate. Press 'q' or 'Esc' to exit.
-//! Specify the desired FPS with the `--fps` flag, enable debug info with the `--debug` flag.
-//! The cube will automatically adjust its size based on the terminal dimensions.
-//!
-use std::io::{stdout, Write, Result};
-use std::time::{Duration, Instant};
-use std::f32::consts::PI;
-use clap::Parser;
-use crossterm::style::Print;
-use crossterm::{
-    execute,
-    style::{Color, SetForegroundColor, ResetColor},
-    terminal::{Clear, ClearType, size, enable_raw_mode, disable_raw_mode},
-    cursor::{Hide, Show, MoveTo},
-    event::{poll, read, Event, KeyCode},
+use druid::kurbo::Point;
+use druid::text::FontFamily;
+use druid::widget::prelude::*;
+use druid::{
+    commands,
+    piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
+    AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc,
 };
+use std::f64::consts::PI;
+use std::time::Instant;
 
-// Constants for cube rendering and animation
-const DISTANCE: f32 = 50.0;
-const ANGLE_INCREMENT: f32 = 0.05;
-const MIN_CUBE_SIZE: f32 = 4.0;
-const LIGHT_DIRECTION: Point3D = Point3D { x: -1.0, y: -1.0, z: -1.0 };
-const DEFAULT_FPS: u32 = 30;
-const FPS_SAMPLE_COUNT: usize = 10;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[arg(short, long)]
+/// Application state
+#[derive(Clone, Data)]
+struct AppState {
+    /// Current rotation angle of the cube
+    angle: f64,
+    /// Enable debug mode
     debug: bool,
-
-    #[arg(short, long)]
-    fps: Option<u32>,
+    /// Simulation paused
+    paused: bool,
 }
 
-/// Represents a point in 3D space
-#[derive(Clone, Copy)]
-struct Point3D {
-    x: f32,
-    y: f32,
-    z: f32,
+/// 3D cube widget
+struct CubeWidget {
+    frames_since_last_update: usize,
+    last_fps_calculation: Instant,
+    fps: f64,
 }
 
-/// Represents a point in 2D space (for projection)
-#[derive(Clone, Copy)]
-struct Point2D {
-    x: i32,
-    y: i32,
+impl CubeWidget {
+    fn new() -> Self {
+        CubeWidget {
+            frames_since_last_update: 0,
+            last_fps_calculation: Instant::now(),
+            fps: 0.0,
+        }
+    }
 }
 
-/// Represents a face of the cube
-struct Face {
-    vertices: [usize; 4],
-    normal: Point3D,
-    color: Color,
-}
-
-/// FrameTimer for timing and FPS calculation
-struct FrameTimer {
-    target_fps: u32,
-    last_frame_time: Instant,
-    frame_times: Vec<Duration>,
-    frame_count: usize,
-}
-
-impl FrameTimer {
-    fn new(target_fps: Option<u32>) -> Self {
-        FrameTimer {
-            target_fps: target_fps.unwrap_or(DEFAULT_FPS),
-            last_frame_time: Instant::now(),
-            frame_times: Vec::with_capacity(FPS_SAMPLE_COUNT),
-            frame_count: 0,
+impl Widget<AppState> for CubeWidget {
+    /// Handle events for the cube widget
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut AppState, _env: &Env) {
+        match event {
+            Event::WindowConnected => {
+                ctx.request_timer(std::time::Duration::from_millis(16));
+                // Request focus to receive keyboard events
+                ctx.request_focus();
+            }
+            Event::Timer(_) => {
+                if !data.paused {
+                    data.angle += 0.02;
+                    if data.angle > 2.0 * PI {
+                        data.angle -= 2.0 * PI;
+                    }
+                    ctx.request_paint();
+                }
+                ctx.request_timer(std::time::Duration::from_millis(16));
+            }
+            Event::KeyDown(key_event) => {
+                if let druid::keyboard_types::Key::Character(s) = &key_event.key {
+                    if s == "d" || s == "D" {
+                        data.debug = !data.debug;
+                        ctx.request_paint();
+                    } else if s == "p" || s == "P" {
+                        data.paused = !data.paused;
+                        ctx.request_paint();
+                    } else if s == "q" || s == "Q" {
+                        // Submit the QUIT_APP command to exit the application
+                        ctx.submit_command(commands::QUIT_APP);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
-    fn start_frame(&mut self) {
-        self.last_frame_time = Instant::now();
+    fn lifecycle(
+        &mut self,
+        _ctx: &mut LifeCycleCtx,
+        _event: &LifeCycle,
+        _data: &AppState,
+        _env: &Env,
+    ) {
+    }
+    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &AppState, _data: &AppState, _env: &Env) {}
+    /// Determines the layout constraints for the cube widget
+    fn layout(
+        &mut self,
+        _layout_ctx: &mut LayoutCtx,
+        bc: &BoxConstraints,
+        _data: &AppState,
+        _env: &Env,
+    ) -> Size {
+        bc.max()
     }
 
-    fn end_frame(&mut self) -> Option<Duration> {
-        let frame_duration = self.last_frame_time.elapsed();
-        self.frame_times.push(frame_duration);
-        if self.frame_times.len() > FPS_SAMPLE_COUNT {
-            self.frame_times.remove(0);
+    /// Paint the cube widget
+    fn paint(&mut self, ctx: &mut PaintCtx, data: &AppState, _env: &Env) {
+        // Update FPS calculation
+        self.frames_since_last_update += 1;
+        let now = Instant::now();
+        let duration = now.duration_since(self.last_fps_calculation);
+        if duration.as_secs_f64() >= 1.0 {
+            self.fps = self.frames_since_last_update as f64 / duration.as_secs_f64();
+            self.frames_since_last_update = 0;
+            self.last_fps_calculation = now;
         }
 
-        self.frame_count += 1;
-        let target_frame_duration = Duration::from_secs(1) / self.target_fps;
+        let size = ctx.size();
+        let width = size.width as usize;
+        let height = size.height as usize;
+        let center = Point::new(size.width / 2.0, size.height / 2.0);
+        let scale = size.height.min(size.width) / 4.0;
 
-        if frame_duration < target_frame_duration {
-            Some(target_frame_duration - frame_duration)
-        } else {
-            None
+        // Create pixel buffer and z-buffer
+        let mut pixel_data = vec![0u8; width * height * 4];
+        let mut z_buffer = vec![std::f64::INFINITY; width * height];
+
+        // Define cube vertices
+        let vertices = [
+            (-1.0, -1.0, -1.0),
+            (1.0, -1.0, -1.0),
+            (1.0, 1.0, -1.0),
+            (-1.0, 1.0, -1.0),
+            (-1.0, -1.0, 1.0),
+            (1.0, -1.0, 1.0),
+            (1.0, 1.0, 1.0),
+            (-1.0, 1.0, 1.0),
+        ];
+
+        // Define cube faces (each face is defined by 4 vertex indices)
+        let faces = [
+            (0, 1, 2, 3),
+            (5, 4, 7, 6),
+            (4, 0, 3, 7),
+            (1, 5, 6, 2),
+            (4, 5, 1, 0),
+            (3, 2, 6, 7),
+        ];
+
+        // Define face colors
+        let face_colors = [
+            Color::rgb8(255, 0, 0),   // Red
+            Color::rgb8(0, 255, 0),   // Green
+            Color::rgb8(0, 0, 255),   // Blue
+            Color::rgb8(255, 255, 0), // Yellow
+            Color::rgb8(255, 0, 255), // Magenta
+            Color::rgb8(0, 255, 255), // Cyan
+        ];
+
+        // Light source position in 3D space
+        let light_pos = [2.0, 2.0, -5.0];
+
+        // Rotation matrices
+        let (sin_a, cos_a) = data.angle.sin_cos();
+        let rotation_y = [
+            [cos_a, 0.0, sin_a],
+            [0.0, 1.0, 0.0],
+            [-sin_a, 0.0, cos_a],
+        ];
+        let rotation_x = [
+            [1.0, 0.0, 0.0],
+            [0.0, cos_a, -sin_a],
+            [0.0, sin_a, cos_a],
+        ];
+
+        // Transform and project vertices
+        let transformed_vertices: Vec<[f64; 3]> = vertices
+            .iter()
+            .map(|&(x, y, z)| {
+                let [x, y, z] = multiply_matrix_vector(&rotation_y, &[x, y, z]);
+                multiply_matrix_vector(&rotation_x, &[x, y, z])
+            })
+            .collect();
+
+        // Compute vertex normals
+        let mut vertex_normals = vec![[0.0; 3]; vertices.len()];
+        for &(a, b, c, d) in faces.iter() {
+            let normal = calculate_normal(
+                &transformed_vertices[a],
+                &transformed_vertices[b],
+                &transformed_vertices[c],
+            );
+            for &index in &[a, b, c, d] {
+                vertex_normals[index][0] += normal[0];
+                vertex_normals[index][1] += normal[1];
+                vertex_normals[index][2] += normal[2];
+            }
         }
-    }
+        for normal in vertex_normals.iter_mut() {
+            let length = (normal[0] * normal[0]
+                + normal[1] * normal[1]
+                + normal[2] * normal[2])
+                .sqrt();
+            normal[0] /= length;
+            normal[1] /= length;
+            normal[2] /= length;
+        }
 
-    fn get_fps(&self) -> f32 {
-        // Calculate the average frame time
-        let total_time = self.frame_times.iter().sum::<Duration>();
-        let avg_time = total_time / self.frame_times.len() as u32;
-        1.0 / (avg_time.as_secs_f32() / self.target_fps as f32) / 1000.0
+        // Create vertices with normals and screen positions
+        let vertices_with_normals: Vec<Vertex> = transformed_vertices
+            .iter()
+            .zip(vertex_normals.iter())
+            .map(|(&position, &normal)| {
+                let screen_x = position[0] * scale + center.x;
+                let screen_y = position[1] * scale + center.y;
+                Vertex {
+                    position,
+                    screen_position: [screen_x, screen_y],
+                    normal,
+                }
+            })
+            .collect();
+
+        // Draw faces
+        for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
+            // Triangle 1: a, b, c
+            draw_triangle(
+                &vertices_with_normals[a],
+                &vertices_with_normals[b],
+                &vertices_with_normals[c],
+                &mut pixel_data,
+                &mut z_buffer,
+                width,
+                height,
+                &light_pos,
+                face_colors[face_index],
+            );
+            // Triangle 2: a, c, d
+            draw_triangle(
+                &vertices_with_normals[a],
+                &vertices_with_normals[c],
+                &vertices_with_normals[d],
+                &mut pixel_data,
+                &mut z_buffer,
+                width,
+                height,
+                &light_pos,
+                face_colors[face_index],
+            );
+        }
+
+        // Create and draw the image
+        let image = ctx
+            .make_image(width, height, &pixel_data, druid::piet::ImageFormat::RgbaSeparate)
+            .unwrap();
+        ctx.draw_image(&image, size.to_rect(), InterpolationMode::NearestNeighbor);
+
+        // Add debug info if debug mode is enabled
+        if data.debug {
+            // Draw program name and version
+            let text = format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 12.0)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            ctx.draw_text(&text_layout, (10.0, 10.0));
+
+            // Draw angle
+            let text = format!("Angle: {:.2}", data.angle);
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 12.0)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            ctx.draw_text(&text_layout, (10.0, 30.0));
+
+            // Draw light position
+            let text = format!(
+                "Light: ({:.2}, {:.2}, {:.2})",
+                light_pos[0], light_pos[1], light_pos[2]
+            );
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 12.0)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            ctx.draw_text(&text_layout, (10.0, 50.0));
+
+            // Draw FPS
+            let text = format!("FPS: {:.2}", self.fps);
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 12.0)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            ctx.draw_text(&text_layout, (10.0, 70.0));
+        }
+
+        // Display 'Paused' if the simulation is paused
+        if data.paused {
+            // Draw a semi-transparent overlay
+            let overlay_color = Color::rgba8(0, 0, 0, 150); // Adjust the alpha value as needed
+            ctx.fill(size.to_rect(), &overlay_color);
+
+            // Draw 'Paused' text
+            let text = "Paused";
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 36.0)
+                .default_attribute(druid::piet::FontWeight::BOLD)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            let text_size = text_layout.size();
+            let pos = (
+                (size.width - text_size.width) / 2.0,
+                (size.height - text_size.height) / 2.0,
+            );
+            ctx.draw_text(&text_layout, pos);
+        }
     }
 }
 
-/// Buffer for storing and rendering the cube
-struct Buffer {
+/// Vertex structure with position, screen position, and normal
+struct Vertex {
+    position: [f64; 3],
+    screen_position: [f64; 2],
+    normal: [f64; 3],
+}
+
+/// Draws a triangle with per-pixel lighting
+fn draw_triangle(
+    v0: &Vertex,
+    v1: &Vertex,
+    v2: &Vertex,
+    pixel_data: &mut [u8],
+    z_buffer: &mut [f64],
     width: usize,
     height: usize,
-    content: Vec<Vec<(char, Color)>>,
-}
+    light_pos: &[f64; 3],
+    base_color: Color,
+) {
+    // Compute bounding box of the triangle
+    let min_x = v0
+        .screen_position[0]
+        .min(v1.screen_position[0])
+        .min(v2.screen_position[0])
+        .floor()
+        .max(0.0) as usize;
+    let max_x = v0
+        .screen_position[0]
+        .max(v1.screen_position[0])
+        .max(v2.screen_position[0])
+        .ceil()
+        .min(width as f64 - 1.0) as usize;
+    let min_y = v0
+        .screen_position[1]
+        .min(v1.screen_position[1])
+        .min(v2.screen_position[1])
+        .floor()
+        .max(0.0) as usize;
+    let max_y = v0
+        .screen_position[1]
+        .max(v1.screen_position[1])
+        .max(v2.screen_position[1])
+        .ceil()
+        .min(height as f64 - 1.0) as usize;
 
-impl Buffer {
-    /// Creates a new buffer with the specified dimensions
-    fn new(width: usize, height: usize) -> Self {
-        Buffer {
-            width,
-            height,
-            content: vec![vec![(' ', Color::Reset); width]; height],
-        }
-    }
+    // Precompute area of the triangle
+    let area = edge_function(&v0.screen_position, &v1.screen_position, &v2.screen_position);
 
-    /// Sets a character and color at the specified position in the buffer
-    fn set(&mut self, x: usize, y: usize, ch: char, color: Color) {
-        if x < self.width && y < self.height {
-            self.content[y][x] = (ch, color);
-        }
-    }
+    // For each pixel in the bounding box
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            let px = x as f64 + 0.5;
+            let py = y as f64 + 0.5;
+            let p = [px, py];
 
-    /// Clears the buffer, resetting all characters and colors
-    fn clear(&mut self) {
-        for row in self.content.iter_mut() {
-            for cell in row.iter_mut() {
-                *cell = (' ', Color::Reset);
-            }
-        }
-    }
+            let w0 = edge_function(&v1.screen_position, &v2.screen_position, &p);
+            let w1 = edge_function(&v2.screen_position, &v0.screen_position, &p);
+            let w2 = edge_function(&v0.screen_position, &v1.screen_position, &p);
 
-    /// Resizes the buffer to new dimensions
-    fn resize(&mut self, new_width: usize, new_height: usize) {
-        self.width = new_width;
-        self.height = new_height;
-        self.content = vec![vec![(' ', Color::Reset); new_width]; new_height];
-    }
+            if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                // Inside triangle
+                // Normalize barycentric coordinates
+                let w0 = w0 / area;
+                let w1 = w1 / area;
+                let w2 = w2 / area;
 
-    /// Renders the buffer content to the terminal
-    fn render(&self, stdout: &mut std::io::Stdout) -> Result<()> {
-        let mut last_color = Color::Reset;
-        for (y, row) in self.content.iter().enumerate() {
-            execute!(stdout, MoveTo(0, y as u16))?;
-            for &(ch, color) in row {
-                if color != last_color {
-                    execute!(stdout, SetForegroundColor(color))?;
-                    last_color = color;
-                }
-                write!(stdout, "{}", ch)?;
-            }
-        }
-        execute!(stdout, ResetColor)?;
-        stdout.flush()?;
-        Ok(())
-    }
-}
+                // Interpolate position
+                let px3d = v0.position[0] * w0 + v1.position[0] * w1 + v2.position[0] * w2;
+                let py3d = v0.position[1] * w0 + v1.position[1] * w1 + v2.position[1] * w2;
+                let pz3d = v0.position[2] * w0 + v1.position[2] * w1 + v2.position[2] * w2;
 
-/// Main function to run the 3D cube animation
-fn main() -> Result<()> {
-    let args = Args::parse();
+                // Depth test
+                let offset = y * width + x;
+                if pz3d < z_buffer[offset] {
+                    z_buffer[offset] = pz3d;
 
-    enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, Hide, Clear(ClearType::All))?;
+                    // Interpolate normal
+                    let nx = v0.normal[0] * w0 + v1.normal[0] * w1 + v2.normal[0] * w2;
+                    let ny = v0.normal[1] * w0 + v1.normal[1] * w1 + v2.normal[1] * w2;
+                    let nz = v0.normal[2] * w0 + v1.normal[2] * w1 + v2.normal[2] * w2;
+                    let length = (nx * nx + ny * ny + nz * nz).sqrt();
+                    let interpolated_normal = [nx / length, ny / length, nz / length];
 
-    let mut angle_x = 0.0;
-    let mut angle_y = 0.0;
-    let mut last_frame = Instant::now();
-    let light_direction = normalize(&LIGHT_DIRECTION);
+                    // Compute lighting
+                    let light_intensity = calculate_light_intensity(
+                        &interpolated_normal,
+                        &[px3d, py3d, pz3d],
+                        light_pos,
+                    );
 
-    let (mut width, mut height) = size()?;
-    let mut buffer = Buffer::new(width as usize, height as usize);
+                    // Compute shaded color
+                    let shaded_color = apply_lighting(base_color.clone(), light_intensity);
 
-    let mut is_resizing = false;
-    let mut last_resize_time = Instant::now();
-    let resize_cooldown = Duration::from_millis(500);
-
-    draw_welcome_message(&mut buffer, width, height);
-    buffer.render(&mut stdout)?;
-
-    precise_sleep(Duration::from_secs(3));
-    buffer.clear();
-    buffer.render(&mut stdout)?;
-
-    let mut frame_timer = FrameTimer::new(args.fps);
-
-    loop {
-        frame_timer.start_frame();
-
-        if poll(Duration::from_millis(1))? {
-            match read()? {
-                Event::Key(key_event) => {
-                    if key_event.code == KeyCode::Esc || key_event.code == KeyCode::Char('q') {
-                        break;
-                    }
-                },
-                Event::Resize(new_width, new_height) => {
-                    width = new_width;
-                    height = new_height;
-                    buffer.resize(width as usize, height as usize);
-                    execute!(stdout, Clear(ClearType::All))?;
-                    is_resizing = true;
-                    last_resize_time = Instant::now();
-                },
-                _ => {}
-            }
-        }
-
-        let now = Instant::now();
-
-        if is_resizing {
-            if now.duration_since(last_resize_time) > resize_cooldown {
-                is_resizing = false;
-            } else {
-                buffer.clear();
-                draw_resize_message(&mut buffer, width, height);
-                buffer.render(&mut stdout)?;
-                continue;
-            }
-        }
-
-        let elapsed = now.duration_since(last_frame);
-
-        if elapsed >= frame_timer.end_frame().unwrap_or(Duration::from_secs(0)) {
-            if width < 10 || height < 10 {
-                execute!(stdout, Clear(ClearType::All), MoveTo(0, 0), Print("Terminal too small"))?;
-                stdout.flush()?;
-                precise_sleep(Duration::from_millis(100));
-                continue;
-            }
-
-            let center_x = width as i32 / 2;
-            let center_y = height as i32 / 2;
-            let cube_size = (width.min(height) as f32 * 0.4).max(MIN_CUBE_SIZE);
-
-            let cube = create_cube(cube_size);
-            let faces = create_faces();
-            let rotated_cube = rotate_cube(&cube, angle_x, angle_y);
-            let projected_cube = project_cube(&rotated_cube, center_x, center_y);
-
-            buffer.clear();
-            draw_cube(&mut buffer, &projected_cube, &rotated_cube, &faces, &light_direction, angle_x, angle_y, width, height)?;
-            if args.debug {
-                // Draw program version and FPS at the top left of the screen
-                let prg_name = env!("CARGO_PKG_NAME");
-                let version = env!("CARGO_PKG_VERSION");
-                let version_x = 0;
-                let version_y = 0;
-                let version_string = format!("{} v{}", prg_name, version);
-                for (i, ch) in version_string.chars().enumerate() {
-                    buffer.set((version_x + i as u16).into(), version_y, ch, Color::White);
-                }
-
-                // Draw FPS (as a float number to the hundredths directly below the version
-                let fps = frame_timer.get_fps();
-                let fps_string: String = format!("target fps: {:.2}, actual fps: {:.2}", args.fps.unwrap_or(DEFAULT_FPS), fps);
-                let fps_x = 0;
-                let fps_y = version_y + 1;
-                for (i, ch) in fps_string.chars().enumerate() {
-                    buffer.set((fps_x + i as u16).into(), fps_y, ch, Color::White);
+                    // Set pixel color
+                    let pixel_offset = offset * 4;
+                    let (r, g, b, a) = shaded_color.as_rgba8();
+                    pixel_data[pixel_offset] = r;
+                    pixel_data[pixel_offset + 1] = g;
+                    pixel_data[pixel_offset + 2] = b;
+                    pixel_data[pixel_offset + 3] = a;
                 }
             }
-            buffer.render(&mut stdout)?;
-
-            angle_x += ANGLE_INCREMENT;
-            angle_y += ANGLE_INCREMENT * 0.7;
-            if angle_x >= 2.0 * PI {
-                angle_x -= 2.0 * PI;
-            }
-            if angle_y >= 2.0 * PI {
-                angle_y -= 2.0 * PI;
-            }
-
-            last_frame = now;
         }
     }
-
-    execute!(stdout, Show)?;
-    disable_raw_mode()?;
-    Ok(())
 }
 
-/// Draws a welcome message in the center of the buffer
-fn draw_welcome_message(buffer: &mut Buffer, width: u16, height: u16) {
-    let welcome_message = "Welcome to cube3d, press 'q' to quit";
-    let x = width as usize / 2 - welcome_message.len() / 2;
-    let y = height as usize / 2;
+/// Edge function used in rasterization
+fn edge_function(a: &[f64; 2], b: &[f64; 2], c: &[f64; 2]) -> f64 {
+    (c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])
+}
 
-    for (i, ch) in welcome_message.chars().enumerate() {
-        buffer.set(x + i, y, ch, Color::White);
+/// Multiplies a 3x3 matrix by a 3-dimensional vector
+fn multiply_matrix_vector(matrix: &[[f64; 3]; 3], vector: &[f64; 3]) -> [f64; 3] {
+    let mut result = [0.0; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            result[i] += matrix[i][j] * vector[j];
+        }
     }
+    result
 }
 
-/// A more precise sleep function
-fn precise_sleep(duration: Duration) {
-    let start = Instant::now();
-    while start.elapsed() < duration {
-        std::hint::spin_loop();
-    }
+/// Calculates the normal vector of a triangle
+fn calculate_normal(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> [f64; 3] {
+    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let normal = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+    [normal[0] / length, normal[1] / length, normal[2] / length]
 }
 
-/// Draws a resizing message in the center of the buffer
-fn draw_resize_message(buffer: &mut Buffer, width: u16, height: u16) {
-    let message = "Resizing...";
-    let x = width as usize / 2 - message.len() / 2;
-    let y = height as usize / 2;
-
-    for (i, ch) in message.chars().enumerate() {
-        buffer.set(x + i, y, ch, Color::White);
-    }
+/// Calculates the light intensity based on the normal vector and light position
+fn calculate_light_intensity(
+    normal: &[f64; 3],
+    position: &[f64; 3],
+    light_pos: &[f64; 3],
+) -> f64 {
+    let light_dir = [
+        light_pos[0] - position[0],
+        light_pos[1] - position[1],
+        light_pos[2] - position[2],
+    ];
+    let length = (light_dir[0] * light_dir[0]
+        + light_dir[1] * light_dir[1]
+        + light_dir[2] * light_dir[2])
+        .sqrt();
+    let light_dir = [
+        light_dir[0] / length,
+        light_dir[1] / length,
+        light_dir[2] / length,
+    ];
+    let dot_product =
+        normal[0] * light_dir[0] + normal[1] * light_dir[1] + normal[2] * light_dir[2];
+    dot_product.max(0.1) // Ensure a minimum ambient light
 }
 
-/// Creates the vertices of a cube with the given size
-fn create_cube(size: f32) -> Vec<Point3D> {
-    vec![
-        Point3D { x: -size/2.0, y: -size/2.0, z: -size/2.0 },
-        Point3D { x:  size/2.0, y: -size/2.0, z: -size/2.0 },
-        Point3D { x:  size/2.0, y:  size/2.0, z: -size/2.0 },
-        Point3D { x: -size/2.0, y:  size/2.0, z: -size/2.0 },
-        Point3D { x: -size/2.0, y: -size/2.0, z:  size/2.0 },
-        Point3D { x:  size/2.0, y: -size/2.0, z:  size/2.0 },
-        Point3D { x:  size/2.0, y:  size/2.0, z:  size/2.0 },
-        Point3D { x: -size/2.0, y:  size/2.0, z:  size/2.0 },
-    ]
+/// Applies lighting to a color
+fn apply_lighting(color: Color, intensity: f64) -> Color {
+    let r = (color.as_rgba8().0 as f64 * intensity).min(255.0) as u8;
+    let g = (color.as_rgba8().1 as f64 * intensity).min(255.0) as u8;
+    let b = (color.as_rgba8().2 as f64 * intensity).min(255.0) as u8;
+    Color::rgb8(r, g, b)
 }
 
-/// Creates the faces of the cube, defining vertices and colors
-fn create_faces() -> Vec<Face> {
-    vec![
-        Face { vertices: [0, 1, 2, 3], normal: Point3D { x: 0.0, y: 0.0, z: -1.0 }, color: Color::Red },
-        Face { vertices: [5, 4, 7, 6], normal: Point3D { x: 0.0, y: 0.0, z: 1.0 }, color: Color::Green },
-        Face { vertices: [1, 5, 6, 2], normal: Point3D { x: 1.0, y: 0.0, z: 0.0 }, color: Color::Blue },
-        Face { vertices: [4, 0, 3, 7], normal: Point3D { x: -1.0, y: 0.0, z: 0.0 }, color: Color::Yellow },
-        Face { vertices: [3, 2, 6, 7], normal: Point3D { x: 0.0, y: 1.0, z: 0.0 }, color: Color::Magenta },
-        Face { vertices: [1, 0, 4, 5], normal: Point3D { x: 0.0, y: -1.0, z: 0.0 }, color: Color::Cyan },
-    ]
-}
+/// Main function
+pub fn main() -> Result<(), PlatformError> {
+    let main_window = WindowDesc::new(CubeWidget::new())
+        .title(LocalizedString::new("3D Cube with Per-Pixel Lighting"))
+        .window_size((400.0, 400.0));
 
-/// Rotates the cube vertices around the X and Y axes
-fn rotate_cube(cube: &[Point3D], angle_x: f32, angle_y: f32) -> Vec<Point3D> {
-    cube.iter()
-        .map(|p| {
-            // Rotate around X-axis
-            let y1 = p.y * angle_x.cos() - p.z * angle_x.sin();
-            let z1 = p.y * angle_x.sin() + p.z * angle_x.cos();
+    let initial_state = AppState {
+        angle: 0.0,
+        debug: false,
+        paused: false,
+    };
 
-            // Rotate around Y-axis
-            let x2 = p.x * angle_y.cos() + z1 * angle_y.sin();
-            let z2 = -p.x * angle_y.sin() + z1 * angle_y.cos();
-
-            Point3D { x: x2, y: y1, z: z2 }
-        })
-        .collect()
-}
-
-/// Projects 3D points onto a 2D plane for rendering
-fn project_cube(cube: &[Point3D], center_x: i32, center_y: i32) -> Vec<Point2D> {
-    cube.iter()
-        .map(|p| {
-            let x = (p.x * DISTANCE / (p.z + DISTANCE)) as i32 + center_x;
-            let y = (p.y * DISTANCE / (p.z + DISTANCE)) as i32 + center_y;
-            Point2D { x, y }
-        })
-        .collect()
-}
-
-/// Draws the cube on the buffer, applying rotation, projection, and shading
-fn draw_cube(buffer: &mut Buffer, projected: &[Point2D], rotated: &[Point3D], faces: &[Face], light_direction: &Point3D, angle_x: f32, angle_y: f32, width: u16, height: u16) -> Result<()> {
-    let mut face_depths: Vec<(usize, f32)> = faces.iter().enumerate()
-        .map(|(i, face)| {
-            let center = face_center(rotated, &face.vertices);
-            (i, center.z)
-        })
-        .collect();
-
-    face_depths.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-    for (face_index, _) in face_depths {
-        let face = &faces[face_index];
-        let rotated_normal = rotate_point(&face.normal, angle_x, angle_y);
-        let shade = dot_product(&rotated_normal, light_direction).max(0.1);
-
-        let shade_char = get_shade_char(shade);
-        let color = shade_color(&face.color, shade);
-
-        fill_face(buffer, projected, &face.vertices, shade_char, color, width, height);
-    }
+    AppLauncher::with_window(main_window).launch(initial_state)?;
 
     Ok(())
-}
-
-/// Rotates a single point around the X and Y axes
-fn rotate_point(point: &Point3D, angle_x: f32, angle_y: f32) -> Point3D {
-    let cos_x = angle_x.cos();
-    let sin_x = angle_x.sin();
-    let cos_y = angle_y.cos();
-    let sin_y = angle_y.sin();
-
-    let y1 = point.y * cos_x - point.z * sin_x;
-    let z1 = point.y * sin_x + point.z * cos_x;
-
-    let x2 = point.x * cos_y + z1 * sin_y;
-    let z2 = -point.x * sin_y + z1 * cos_y;
-
-    Point3D { x: x2, y: y1, z: z2 }
-}
-
-/// Fills a face of the cube with the appropriate shading
-fn fill_face(buffer: &mut Buffer, projected: &[Point2D], vertices: &[usize], shade_char: char, color: Color, width: u16, height: u16) {
-    let points: Vec<Point2D> = vertices.iter().map(|&i| projected[i]).collect();
-    let points_with_wrap: Vec<Point2D> = points.iter().chain(points.first()).cloned().collect();
-
-    for y in 0..height {
-        let mut intersections = Vec::new();
-        for window in points_with_wrap.windows(2) {
-            if let Some(x) = edge_intersect(window[0], window[1], y) {
-                intersections.push(x);
-            }
-        }
-        intersections.sort_unstable();
-
-        for chunk in intersections.chunks(2) {
-            if chunk.len() == 2 {
-                let start = chunk[0].max(0).min(width as i32 - 1) as usize;
-                let end = chunk[1].max(0).min(width as i32 - 1) as usize;
-                for x in start..=end {
-                    buffer.set(x, y as usize, shade_char, color);
-                }
-            }
-        }
-    }
-}
-
-/// Calculates the center point of a face
-fn face_center(points: &[Point3D], vertices: &[usize]) -> Point3D {
-    let mut center = Point3D { x: 0.0, y: 0.0, z: 0.0 };
-    for &i in vertices {
-        center.x += points[i].x;
-        center.y += points[i].y;
-        center.z += points[i].z;
-    }
-    let len = vertices.len() as f32;
-    Point3D {
-        x: center.x / len,
-        y: center.y / len,
-        z: center.z / len,
-    }
-}
-
-/// Normalizes a 3D vector
-fn normalize(v: &Point3D) -> Point3D {
-    let length = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
-    Point3D {
-        x: v.x / length,
-        y: v.y / length,
-        z: v.z / length,
-    }
-}
-
-/// Calculates the dot product of two 3D vectors
-fn dot_product(a: &Point3D, b: &Point3D) -> f32 {
-    a.x * b.x + a.y * b.y + a.z * b.z
-}
-
-/// Determines the appropriate shading character based on the light intensity
-fn get_shade_char(shade: f32) -> char {
-    let shade_chars = ['░', '▒', '▓', '█'];
-    let index = ((shade * (shade_chars.len() - 1) as f32).round() as usize).min(shade_chars.len() - 1);
-    shade_chars[index]
-}
-
-/// Adjusts the color based on the shading intensity
-fn shade_color(color: &Color, shade: f32) -> Color {
-    match color {
-        Color::Rgb { r, g, b } => {
-            let r = (*r as f32 * shade) as u8;
-            let g = (*g as f32 * shade) as u8;
-            let b = (*b as f32 * shade) as u8;
-
-            Color::Rgb { r, g, b }
-        },
-        _ => {
-            let intensity = (shade * 255.0) as u8;
-
-            match color {
-                Color::Red => Color::Rgb { r: intensity, g: 0, b: 0 },
-                Color::Green => Color::Rgb { r: 0, g: intensity, b: 0 },
-                Color::Blue => Color::Rgb { r: 0, g: 0, b: intensity },
-                Color::Yellow => Color::Rgb { r: intensity, g: intensity, b: 0 },
-                Color::Magenta => Color::Rgb { r: intensity, g: 0, b: intensity },
-                Color::Cyan => Color::Rgb { r: 0, g: intensity, b: intensity },
-                _ => Color::Rgb { r: intensity, g: intensity, b: intensity },
-            }
-        }
-    }
-}
-
-/// Calculates the intersection of an edge with a horizontal line
-fn edge_intersect(p1: Point2D, p2: Point2D, y: u16) -> Option<i32> {
-    let y = y as i32;
-    if (p1.y > y && p2.y <= y) || (p2.y > y && p1.y <= y) {
-        let x = p1.x + (p2.x - p1.x) * (y - p1.y) / (p2.y - p1.y);
-        Some(x)
-    } else {
-        None
-    }
 }

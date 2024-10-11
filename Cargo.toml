@@ -3,11 +3,9 @@ name = "cube3d"
 description = "A console-based 3D cube rotation demo"
 repository = "https://github.com/drewwalton19216801/cube3d"
 readme = "README.md"
-version = "0.3.4"
+version = "0.3.99"
 edition = "2021"
 license = "MIT"
 
 [dependencies]
-crossterm = "0.28.1"
-termsize = "0.1.9"
-clap = { version = "4.5.17", features = ["derive"] }
+druid = "0.8.3"
