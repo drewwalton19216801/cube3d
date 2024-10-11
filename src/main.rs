@@ -6,7 +6,6 @@ use druid::{
     piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
     AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc,
 };
-use std::f64::consts::PI;
 use std::time::Instant;
 
 /// Application state
@@ -16,6 +15,8 @@ struct AppState {
     angle_x: f64,
     /// Current rotation angle around the Y-axis
     angle_y: f64,
+    /// Translation vector (x, y)
+    translation: [f64; 2],
     /// Enable debug mode
     debug: bool,
     /// Simulation paused
@@ -31,8 +32,10 @@ struct CubeWidget {
     frames_since_last_update: usize,
     last_fps_calculation: Instant,
     fps: f64,
-    /// Is the user currently dragging?
-    dragging: bool,
+    /// Is the user currently dragging for rotation?
+    dragging_rotation: bool,
+    /// Is the user currently dragging for translation?
+    dragging_translation: bool,
     /// Last mouse position
     last_mouse_pos: Point,
 }
@@ -43,7 +46,8 @@ impl CubeWidget {
             frames_since_last_update: 0,
             last_fps_calculation: Instant::now(),
             fps: 0.0,
-            dragging: false,
+            dragging_rotation: false,
+            dragging_translation: false,
             last_mouse_pos: Point::ZERO,
         }
     }
@@ -59,7 +63,7 @@ impl Widget<AppState> for CubeWidget {
                 ctx.request_focus();
             }
             Event::Timer(_) => {
-                if !data.paused && !self.dragging {
+                if !data.paused && !self.dragging_rotation && !self.dragging_translation {
                     data.angle_x += 0.01;
                     data.angle_y += 0.02;
                     ctx.request_paint();
@@ -84,22 +88,45 @@ impl Widget<AppState> for CubeWidget {
                 }
             }
             Event::MouseDown(mouse_event) => {
-                self.dragging = true;
                 self.last_mouse_pos = mouse_event.pos;
+                match mouse_event.button {
+                    druid::MouseButton::Left => {
+                        self.dragging_rotation = true;
+                    }
+                    druid::MouseButton::Right => {
+                        self.dragging_translation = true;
+                    }
+                    _ => {}
+                }
                 ctx.set_active(true); // Capture mouse events
             }
             Event::MouseMove(mouse_event) => {
-                if self.dragging {
+                if self.dragging_rotation {
                     let delta = mouse_event.pos - self.last_mouse_pos;
                     // Update rotation angles based on mouse movement
                     data.angle_x += delta.y * 0.01; // Adjust sensitivity as needed
                     data.angle_y += delta.x * 0.01;
                     self.last_mouse_pos = mouse_event.pos;
                     ctx.request_paint();
+                } else if self.dragging_translation {
+                    let delta = mouse_event.pos - self.last_mouse_pos;
+                    // Update translation based on mouse movement
+                    data.translation[0] += delta.x;
+                    data.translation[1] += delta.y;
+                    self.last_mouse_pos = mouse_event.pos;
+                    ctx.request_paint();
                 }
             }
-            Event::MouseUp(_mouse_event) => {
-                self.dragging = false;
+            Event::MouseUp(mouse_event) => {
+                match mouse_event.button {
+                    druid::MouseButton::Left => {
+                        self.dragging_rotation = false;
+                    }
+                    druid::MouseButton::Right => {
+                        self.dragging_translation = false;
+                    }
+                    _ => {}
+                }
                 ctx.set_active(false);
             }
             Event::Wheel(wheel_event) => {
@@ -259,8 +286,8 @@ impl Widget<AppState> for CubeWidget {
             .iter()
             .zip(vertex_normals.iter())
             .map(|(&position, &normal)| {
-                let screen_x = position[0] * scale + center.x;
-                let screen_y = position[1] * scale + center.y;
+                let screen_x = position[0] * scale + center.x + data.translation[0];
+                let screen_y = position[1] * scale + center.y + data.translation[1];
                 Vertex {
                     position,
                     screen_position: [screen_x, screen_y],
@@ -335,7 +362,10 @@ impl Widget<AppState> for CubeWidget {
             ctx.draw_text(&text_layout, (10.0, 10.0));
 
             // Draw angles
-            let text = format!("Angle X: {:.2}, Angle Y: {:.2}", data.angle_x, data.angle_y);
+            let text = format!(
+                "Angle X: {:.2}, Angle Y: {:.2}",
+                data.angle_x, data.angle_y
+            );
             let text_layout = ctx
                 .text()
                 .new_text_layout(text)
@@ -344,6 +374,20 @@ impl Widget<AppState> for CubeWidget {
                 .build()
                 .unwrap();
             ctx.draw_text(&text_layout, (10.0, 30.0));
+
+            // Draw translation
+            let text = format!(
+                "Translation X: {:.2}, Y: {:.2}",
+                data.translation[0], data.translation[1]
+            );
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 12.0)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            ctx.draw_text(&text_layout, (10.0, 50.0));
 
             // Draw light position
             let text = format!(
@@ -357,7 +401,7 @@ impl Widget<AppState> for CubeWidget {
                 .text_color(Color::WHITE)
                 .build()
                 .unwrap();
-            ctx.draw_text(&text_layout, (10.0, 50.0));
+            ctx.draw_text(&text_layout, (10.0, 70.0));
 
             // Draw FPS
             let text = format!("FPS: {:.2}", self.fps);
@@ -368,7 +412,7 @@ impl Widget<AppState> for CubeWidget {
                 .text_color(Color::WHITE)
                 .build()
                 .unwrap();
-            ctx.draw_text(&text_layout, (10.0, 70.0));
+            ctx.draw_text(&text_layout, (10.0, 90.0));
 
             // Draw zoom level
             let text = format!("Zoom: {:.2}", data.zoom);
@@ -379,7 +423,7 @@ impl Widget<AppState> for CubeWidget {
                 .text_color(Color::WHITE)
                 .build()
                 .unwrap();
-            ctx.draw_text(&text_layout, (10.0, 90.0));
+            ctx.draw_text(&text_layout, (10.0, 110.0));
         }
 
         // Display 'Paused' if the simulation is paused
@@ -633,6 +677,7 @@ pub fn main() -> Result<(), PlatformError> {
     let initial_state = AppState {
         angle_x: 0.0,
         angle_y: 0.0,
+        translation: [0.0, 0.0], // Initialize translation
         debug: false,
         paused: false,
         wireframe: false,
