@@ -229,8 +229,8 @@ impl Widget<AppState> for CubeWidget {
             Color::rgb8(0, 255, 255), // Cyan
         ];
 
-        // Light source position in 3D space
-        let light_pos = [2.0, 2.0, -5.0];
+        // Light source position in world space
+        let light_pos_world = [2.0, 2.0, -5.0];
 
         // Rotation matrices
         let (sin_x, cos_x) = data.angle_x.sin_cos();
@@ -248,12 +248,20 @@ impl Widget<AppState> for CubeWidget {
             [-sin_y, 0.0, cos_y],
         ];
 
+        // Combine rotations
+        let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
+
         // Transform and project vertices
         let transformed_vertices: Vec<[f64; 3]> = vertices
             .iter()
             .map(|&(x, y, z)| {
-                let rotated = multiply_matrix_vector(&rotation_y, &[x, y, z]);
-                multiply_matrix_vector(&rotation_x, &rotated)
+                let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
+                // Apply translation in 3D space
+                [
+                    rotated[0] + data.translation[0] / scale,
+                    rotated[1] + data.translation[1] / scale,
+                    rotated[2],
+                ]
             })
             .collect();
 
@@ -286,8 +294,8 @@ impl Widget<AppState> for CubeWidget {
             .iter()
             .zip(vertex_normals.iter())
             .map(|(&position, &normal)| {
-                let screen_x = position[0] * scale + center.x + data.translation[0];
-                let screen_y = position[1] * scale + center.y + data.translation[1];
+                let screen_x = position[0] * scale + center.x;
+                let screen_y = position[1] * scale + center.y;
                 Vertex {
                     position,
                     screen_position: [screen_x, screen_y],
@@ -324,7 +332,7 @@ impl Widget<AppState> for CubeWidget {
                     &mut z_buffer,
                     width,
                     height,
-                    &light_pos,
+                    &light_pos_world,
                     face_colors[face_index],
                 );
                 // Triangle 2: a, c, d
@@ -336,7 +344,7 @@ impl Widget<AppState> for CubeWidget {
                     &mut z_buffer,
                     width,
                     height,
-                    &light_pos,
+                    &light_pos_world,
                     face_colors[face_index],
                 );
             }
@@ -392,7 +400,7 @@ impl Widget<AppState> for CubeWidget {
             // Draw light position
             let text = format!(
                 "Light: ({:.2}, {:.2}, {:.2})",
-                light_pos[0], light_pos[1], light_pos[2]
+                light_pos_world[0], light_pos_world[1], light_pos_world[2]
             );
             let text_layout = ctx
                 .text()
@@ -468,7 +476,7 @@ fn draw_triangle(
     z_buffer: &mut [f64],
     width: usize,
     height: usize,
-    light_pos: &[f64; 3],
+    light_pos_world: &[f64; 3],
     base_color: Color,
 ) {
     // Compute bounding box of the triangle
@@ -539,7 +547,7 @@ fn draw_triangle(
                     let light_intensity = calculate_light_intensity(
                         &interpolated_normal,
                         &[px3d, py3d, pz3d],
-                        light_pos,
+                        light_pos_world,
                     );
 
                     // Compute shaded color
@@ -569,6 +577,19 @@ fn multiply_matrix_vector(matrix: &[[f64; 3]; 3], vector: &[f64; 3]) -> [f64; 3]
     for i in 0..3 {
         for j in 0..3 {
             result[i] += matrix[i][j] * vector[j];
+        }
+    }
+    result
+}
+
+/// Multiplies two 3x3 matrices
+fn multiply_matrices(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut result = [[0.0; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            for k in 0..3 {
+                result[i][j] += a[i][k] * b[k][j];
+            }
         }
     }
     result
