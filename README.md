@@ -69,9 +69,9 @@ These dependencies are specified in `Cargo.toml` and will be automatically fetch
 
 ## Learning Resources
 
-* **Druid Documentation:** [https://linebender.org/druid/](Druid Book)
-* **Rust Programming Language:** [https://doc.rust-lang.org/book/](The Rust Book)
-* **3D Graphics Basics:** [https://learnopengl.com/](Learn OpenGL)
+* **Druid Documentation:** [https://linebender.org/druid/](<Druid Book>)
+* **Rust Programming Language:** [https://doc.rust-lang.org/book/](<Rust Book>)
+* **3D Graphics Basics:** [https://learnopengl.com/](<Learn OpenGL>)
 
 ## Contributing
 
