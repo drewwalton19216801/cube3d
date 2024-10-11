@@ -86,3 +86,5 @@ This project is licensed under the MIT License. See the [License](https://github
 
 * Inspired by basic 3D rendering techniques.
 * Special thanks to the Rust community for their excellent resources.
+* Claude 3.5 Sonnet for the initial implementations.
+* GPT o1-preview for further improvements.
