@@ -1,12 +1,14 @@
 use druid::kurbo::Point;
 use druid::text::FontFamily;
 use druid::widget::prelude::*;
+use druid::Cursor;
 use druid::{
     commands,
     piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
     AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc,
 };
-use std::time::Instant;
+use std::f64::consts::PI;
+use std::time::{Duration, Instant};
 
 /// Application state
 #[derive(Clone, Data)]
@@ -14,12 +16,21 @@ struct AppState {
     /// Rotation angles around the x and y axes
     rotation_x: f64,
     rotation_y: f64,
+    /// Rotational velocities around the x and y axes
+    rotation_x_velocity: f64,
+    rotation_y_velocity: f64,
     /// Enable debug mode
     debug: bool,
-    /// Simulation paused (optional, can be removed)
+    /// Simulation paused
     paused: bool,
     /// Wireframe mode enabled
     wireframe: bool,
+}
+
+impl AppState {
+    /// Base rotation velocities when idle
+    const BASE_ROTATION_VELOCITY_X: f64 = 0.005;
+    const BASE_ROTATION_VELOCITY_Y: f64 = 0.01;
 }
 
 /// 3D cube widget
@@ -29,6 +40,9 @@ struct CubeWidget {
     fps: f64,
     is_dragging: bool,
     last_mouse_pos: Option<Point>,
+    last_drag_time: Option<Instant>,
+    last_rotation_x: f64,
+    last_rotation_y: f64,
 }
 
 impl CubeWidget {
@@ -39,42 +53,116 @@ impl CubeWidget {
             fps: 0.0,
             is_dragging: false,
             last_mouse_pos: None,
+            last_drag_time: None,
+            last_rotation_x: 0.0,
+            last_rotation_y: 0.0,
         }
     }
 }
-
 
 impl Widget<AppState> for CubeWidget {
     /// Handle events for the cube widget
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut AppState, _env: &Env) {
         match event {
             Event::WindowConnected => {
-                ctx.request_paint();
+                ctx.request_timer(Duration::from_millis(16));
                 // Request focus to receive keyboard events
                 ctx.request_focus();
+            }
+            Event::Timer(_) => {
+                if !data.paused {
+                    // Update rotation angles based on velocities
+                    data.rotation_x += data.rotation_x_velocity;
+                    data.rotation_y += data.rotation_y_velocity;
+
+                    // Keep angles within 0 to 2π
+                    data.rotation_x %= 2.0 * PI;
+                    data.rotation_y %= 2.0 * PI;
+
+                    if !self.is_dragging {
+                        // Set velocities to base values
+                        data.rotation_x_velocity = AppState::BASE_ROTATION_VELOCITY_X;
+                        data.rotation_y_velocity = AppState::BASE_ROTATION_VELOCITY_Y;
+
+                        // Threshold below which we reset to base rotation velocities
+                        const VELOCITY_THRESHOLD: f64 = 0.0001;
+
+                        if data.rotation_x_velocity.abs() < VELOCITY_THRESHOLD {
+                            data.rotation_x_velocity = AppState::BASE_ROTATION_VELOCITY_X;
+                        }
+                        if data.rotation_y_velocity.abs() < VELOCITY_THRESHOLD {
+                            data.rotation_y_velocity = AppState::BASE_ROTATION_VELOCITY_Y;
+                        }
+                    }
+
+                    ctx.request_paint();
+                }
+                ctx.request_timer(Duration::from_millis(16));
             }
             Event::MouseDown(mouse_event) => {
                 if mouse_event.button.is_left() {
                     self.is_dragging = true;
                     self.last_mouse_pos = Some(mouse_event.pos);
+                    // Stop automatic rotation while dragging
+                    data.rotation_x_velocity = 0.0;
+                    data.rotation_y_velocity = 0.0;
                 }
             }
             Event::MouseUp(mouse_event) => {
-                if mouse_event.button.is_left() {
+                if mouse_event.button.is_left() && self.is_dragging {
                     self.is_dragging = false;
                     self.last_mouse_pos = None;
+                    ctx.set_active(false);
+                    ctx.set_cursor(&Cursor::Arrow);
+            
+                    // Calculate velocities based on the last drag movement
+                    if let Some(last_time) = self.last_drag_time {
+                        let elapsed = last_time.elapsed().as_secs_f64();
+                        if elapsed > 0.0 {
+                            data.rotation_x_velocity = (data.rotation_x - self.last_rotation_x) / elapsed;
+                            data.rotation_y_velocity = (data.rotation_y - self.last_rotation_y) / elapsed;
+                        }
+                    }
+            
+                    // Apply friction to slow down over time
+                    const FRICTION: f64 = 0.95;
+                    data.rotation_x_velocity *= FRICTION;
+                    data.rotation_y_velocity *= FRICTION;
                 }
             }
             Event::MouseMove(mouse_event) => {
                 if self.is_dragging {
-                    if let Some(last_pos) = self.last_mouse_pos {
-                        let dx = mouse_event.pos.x - last_pos.x;
-                        let dy = mouse_event.pos.y - last_pos.y;
-                        data.rotation_y += dx * 0.01;
-                        data.rotation_x += dy * 0.01;
-                        ctx.request_paint();
+                    let size = ctx.size();
+                    if mouse_event.pos.x < 0.0
+                        || mouse_event.pos.y < 0.0
+                        || mouse_event.pos.x > size.width
+                        || mouse_event.pos.y > size.height
+                    {
+                        // Mouse has left the widget
+                        self.is_dragging = false;
+                        self.last_mouse_pos = None;
+                        ctx.set_active(false);
+                        ctx.set_cursor(&Cursor::Arrow);
+                        // Set velocities to zero since we don't have movement data
+                        data.rotation_x_velocity = 0.0;
+                        data.rotation_y_velocity = 0.0;
+                    } else {
+                        if let Some(last_pos) = self.last_mouse_pos {
+                            let dx = mouse_event.pos.x - last_pos.x;
+                            let dy = mouse_event.pos.y - last_pos.y;
+                            // Update rotation angles based on mouse movement
+                            const MOUSE_SENSITIVITY: f64 = 0.01;
+                            data.rotation_y += dx * MOUSE_SENSITIVITY;
+                            data.rotation_x += dy * MOUSE_SENSITIVITY;
+                            ctx.request_paint();
+
+                            // Record rotation and time for velocity calculation
+                            self.last_rotation_x = data.rotation_x;
+                            self.last_rotation_y = data.rotation_y;
+                            self.last_drag_time = Some(Instant::now());
+                        }
+                        self.last_mouse_pos = Some(mouse_event.pos);
                     }
-                    self.last_mouse_pos = Some(mouse_event.pos);
                 }
             }
             Event::KeyDown(key_event) => {
@@ -101,12 +189,17 @@ impl Widget<AppState> for CubeWidget {
     fn lifecycle(
         &mut self,
         _ctx: &mut LifeCycleCtx,
-        _event: &LifeCycle,
+        event: &LifeCycle,
         _data: &AppState,
         _env: &Env,
     ) {
+        if let LifeCycle::WidgetAdded = event {
+            // Ensure we have cursor focus to receive mouse events
+            // In Druid 0.8.0, this is not necessary
+        }
     }
-    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &AppState, _data: &AppState, _env: &Env) {}
+    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &AppState, _data: &AppState, _env: &Env) {
+    }
     /// Determines the layout constraints for the cube widget
     fn layout(
         &mut self,
@@ -239,10 +332,8 @@ impl Widget<AppState> for CubeWidget {
             }
         }
         for normal in vertex_normals.iter_mut() {
-            let length = (normal[0] * normal[0]
-                + normal[1] * normal[1]
-                + normal[2] * normal[2])
-                .sqrt();
+            let length =
+                (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
             normal[0] /= length;
             normal[1] /= length;
             normal[2] /= length;
@@ -311,7 +402,12 @@ impl Widget<AppState> for CubeWidget {
 
         // Create and draw the image
         let image = ctx
-            .make_image(width, height, &pixel_data, druid::piet::ImageFormat::RgbaSeparate)
+            .make_image(
+                width,
+                height,
+                &pixel_data,
+                druid::piet::ImageFormat::RgbaSeparate,
+            )
             .unwrap();
         ctx.draw_image(&image, size.to_rect(), InterpolationMode::NearestNeighbor);
 
@@ -342,10 +438,10 @@ impl Widget<AppState> for CubeWidget {
                 .unwrap();
             ctx.draw_text(&text_layout, (10.0, 30.0));
 
-            // Draw light position
+            // Draw rotation velocities
             let text = format!(
-                "Light: ({:.2}, {:.2}, {:.2})",
-                light_pos[0], light_pos[1], light_pos[2]
+                "Velocity X: {:.4}, Velocity Y: {:.4}",
+                data.rotation_x_velocity, data.rotation_y_velocity
             );
             let text_layout = ctx
                 .text()
@@ -414,33 +510,33 @@ fn draw_triangle(
     base_color: Color,
 ) {
     // Compute bounding box of the triangle
-    let min_x = v0
-        .screen_position[0]
+    let min_x = v0.screen_position[0]
         .min(v1.screen_position[0])
         .min(v2.screen_position[0])
         .floor()
         .max(0.0) as usize;
-    let max_x = v0
-        .screen_position[0]
+    let max_x = v0.screen_position[0]
         .max(v1.screen_position[0])
         .max(v2.screen_position[0])
         .ceil()
         .min(width as f64 - 1.0) as usize;
-    let min_y = v0
-        .screen_position[1]
+    let min_y = v0.screen_position[1]
         .min(v1.screen_position[1])
         .min(v2.screen_position[1])
         .floor()
         .max(0.0) as usize;
-    let max_y = v0
-        .screen_position[1]
+    let max_y = v0.screen_position[1]
         .max(v1.screen_position[1])
         .max(v2.screen_position[1])
         .ceil()
         .min(height as f64 - 1.0) as usize;
 
     // Precompute area of the triangle
-    let area = edge_function(&v0.screen_position, &v1.screen_position, &v2.screen_position);
+    let area = edge_function(
+        &v0.screen_position,
+        &v1.screen_position,
+        &v2.screen_position,
+    );
 
     // For each pixel in the bounding box
     for y in min_y..=max_y {
@@ -543,20 +639,15 @@ fn calculate_normal(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> [f64; 3] {
 }
 
 /// Calculates the light intensity based on the normal vector and light position
-fn calculate_light_intensity(
-    normal: &[f64; 3],
-    position: &[f64; 3],
-    light_pos: &[f64; 3],
-) -> f64 {
+fn calculate_light_intensity(normal: &[f64; 3], position: &[f64; 3], light_pos: &[f64; 3]) -> f64 {
     let light_dir = [
         light_pos[0] - position[0],
         light_pos[1] - position[1],
         light_pos[2] - position[2],
     ];
-    let length = (light_dir[0] * light_dir[0]
-        + light_dir[1] * light_dir[1]
-        + light_dir[2] * light_dir[2])
-        .sqrt();
+    let length =
+        (light_dir[0] * light_dir[0] + light_dir[1] * light_dir[1] + light_dir[2] * light_dir[2])
+            .sqrt();
     let light_dir = [
         light_dir[0] / length,
         light_dir[1] / length,
@@ -626,12 +717,14 @@ fn draw_line(
 /// Main function
 pub fn main() -> Result<(), PlatformError> {
     let main_window = WindowDesc::new(CubeWidget::new())
-        .title(LocalizedString::new("3D Cube with Mouse Control"))
+        .title(LocalizedString::new("3D Cube with Mouse Control and Physics"))
         .window_size((400.0, 400.0));
 
     let initial_state = AppState {
         rotation_x: 0.0,
         rotation_y: 0.0,
+        rotation_x_velocity: AppState::BASE_ROTATION_VELOCITY_X,
+        rotation_y_velocity: AppState::BASE_ROTATION_VELOCITY_Y,
         debug: false,
         paused: false,
         wireframe: false,
