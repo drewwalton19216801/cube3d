@@ -17,6 +17,7 @@ use druid::widget::prelude::*;
 use druid::{AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc};
 use std::f64::consts::PI;
 use druid::piet::{Text, TextLayoutBuilder};
+use std::time::Instant;
 
 /// Application state
 #[derive(Clone, Data)]
@@ -37,7 +38,21 @@ struct Args {
 }
 
 /// 3D cube widget
-struct CubeWidget;
+struct CubeWidget {
+    frames_since_last_update: usize,
+    last_fps_calculation: Instant,
+    fps: f64,
+}
+
+impl CubeWidget {
+    fn new() -> Self {
+        CubeWidget {
+            frames_since_last_update: 0,
+            last_fps_calculation: Instant::now(),
+            fps: 0.0,
+        }
+    }
+}
 
 impl Widget<AppState> for CubeWidget {
     /// Handle events for the cube widget
@@ -68,6 +83,16 @@ impl Widget<AppState> for CubeWidget {
 
     /// Paint the cube widget
     fn paint(&mut self, ctx: &mut PaintCtx, data: &AppState, _env: &Env) {
+        // Update FPS calculation
+        self.frames_since_last_update += 1;
+        let now = Instant::now();
+        let duration = now.duration_since(self.last_fps_calculation);
+        if duration.as_secs_f64() >= 1.0 {
+            self.fps = self.frames_since_last_update as f64 / duration.as_secs_f64();
+            self.frames_since_last_update = 0;
+            self.last_fps_calculation = now;
+        }
+
         let size = ctx.size();
         let center = Point::new(size.width / 2.0, size.height / 2.0);
         let scale = size.height.min(size.width) / 4.0;
@@ -181,6 +206,17 @@ impl Widget<AppState> for CubeWidget {
                 .build()
                 .unwrap();
             ctx.draw_text(&text_layout, (10.0, 50.0));
+
+            // Draw FPS
+            let text = format!("FPS: {:.2}", self.fps);
+            let text_layout = ctx
+                .text()
+                .new_text_layout(text)
+                .font(FontFamily::SYSTEM_UI, 12.0)
+                .text_color(Color::WHITE)
+                .build()
+                .unwrap();
+            ctx.draw_text(&text_layout, (10.0, 70.0));
         }
     }
 }
@@ -234,7 +270,7 @@ fn apply_lighting(color: Color, intensity: f64) -> Color {
 pub fn main() -> Result<(), PlatformError> {
     let args = Args::parse();
 
-    let main_window = WindowDesc::new(CubeWidget)
+    let main_window = WindowDesc::new(CubeWidget::new())
         .title(LocalizedString::new("3D Cube with Improved Shaded Faces"))
         .window_size((400.0, 400.0));
 
