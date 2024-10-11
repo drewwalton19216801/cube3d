@@ -41,8 +41,6 @@ struct CubeWidget {
     is_dragging: bool,
     last_mouse_pos: Option<Point>,
     last_drag_time: Option<Instant>,
-    last_rotation_x: f64,
-    last_rotation_y: f64,
 }
 
 impl CubeWidget {
@@ -54,8 +52,6 @@ impl CubeWidget {
             is_dragging: false,
             last_mouse_pos: None,
             last_drag_time: None,
-            last_rotation_x: 0.0,
-            last_rotation_y: 0.0,
         }
     }
 }
@@ -80,13 +76,13 @@ impl Widget<AppState> for CubeWidget {
                     data.rotation_y %= 2.0 * PI;
 
                     if !self.is_dragging {
-                        // Set velocities to base values
-                        data.rotation_x_velocity = AppState::BASE_ROTATION_VELOCITY_X;
-                        data.rotation_y_velocity = AppState::BASE_ROTATION_VELOCITY_Y;
+                        // Apply friction
+                        const FRICTION: f64 = 0.98;
+                        data.rotation_x_velocity *= FRICTION;
+                        data.rotation_y_velocity *= FRICTION;
 
-                        // Threshold below which we reset to base rotation velocities
+                        // If velocities are very small, reset to base velocities
                         const VELOCITY_THRESHOLD: f64 = 0.0001;
-
                         if data.rotation_x_velocity.abs() < VELOCITY_THRESHOLD {
                             data.rotation_x_velocity = AppState::BASE_ROTATION_VELOCITY_X;
                         }
@@ -103,9 +99,12 @@ impl Widget<AppState> for CubeWidget {
                 if mouse_event.button.is_left() {
                     self.is_dragging = true;
                     self.last_mouse_pos = Some(mouse_event.pos);
+                    self.last_drag_time = Some(Instant::now());
                     // Stop automatic rotation while dragging
                     data.rotation_x_velocity = 0.0;
                     data.rotation_y_velocity = 0.0;
+                    ctx.set_active(true);
+                    ctx.set_cursor(&Cursor::Pointer);
                 }
             }
             Event::MouseUp(mouse_event) => {
@@ -114,20 +113,7 @@ impl Widget<AppState> for CubeWidget {
                     self.last_mouse_pos = None;
                     ctx.set_active(false);
                     ctx.set_cursor(&Cursor::Arrow);
-            
-                    // Calculate velocities based on the last drag movement
-                    if let Some(last_time) = self.last_drag_time {
-                        let elapsed = last_time.elapsed().as_secs_f64();
-                        if elapsed > 0.0 {
-                            data.rotation_x_velocity = (data.rotation_x - self.last_rotation_x) / elapsed;
-                            data.rotation_y_velocity = (data.rotation_y - self.last_rotation_y) / elapsed;
-                        }
-                    }
-            
-                    // Apply friction to slow down over time
-                    const FRICTION: f64 = 0.95;
-                    data.rotation_x_velocity *= FRICTION;
-                    data.rotation_y_velocity *= FRICTION;
+                    // The velocities are already updated during MouseMove
                 }
             }
             Event::MouseMove(mouse_event) => {
@@ -150,16 +136,31 @@ impl Widget<AppState> for CubeWidget {
                         if let Some(last_pos) = self.last_mouse_pos {
                             let dx = mouse_event.pos.x - last_pos.x;
                             let dy = mouse_event.pos.y - last_pos.y;
+
+                            // Time since last mouse move
+                            let now = Instant::now();
+                            let dt = now.duration_since(self.last_drag_time.unwrap_or(now)).as_secs_f64();
+
                             // Update rotation angles based on mouse movement
                             const MOUSE_SENSITIVITY: f64 = 0.01;
                             data.rotation_y += dx * MOUSE_SENSITIVITY;
                             data.rotation_x += dy * MOUSE_SENSITIVITY;
+
+                            // Compute velocities
+                            if dt > 0.0 {
+                                data.rotation_x_velocity = dy * MOUSE_SENSITIVITY / dt;
+                                data.rotation_y_velocity = dx * MOUSE_SENSITIVITY / dt;
+
+                                // Limit velocities to prevent them from becoming too high
+                                const MAX_VELOCITY: f64 = 0.05;
+                                data.rotation_x_velocity = data.rotation_x_velocity.clamp(-MAX_VELOCITY, MAX_VELOCITY);
+                                data.rotation_y_velocity = data.rotation_y_velocity.clamp(-MAX_VELOCITY, MAX_VELOCITY);
+                            }
+
                             ctx.request_paint();
 
-                            // Record rotation and time for velocity calculation
-                            self.last_rotation_x = data.rotation_x;
-                            self.last_rotation_y = data.rotation_y;
-                            self.last_drag_time = Some(Instant::now());
+                            // Update last drag time
+                            self.last_drag_time = Some(now);
                         }
                         self.last_mouse_pos = Some(mouse_event.pos);
                     }
