@@ -84,6 +84,11 @@ impl Widget<AppState> for CubeWidget {
                     } else if s == "w" || s == "W" {
                         data.wireframe = !data.wireframe;
                         ctx.request_paint();
+                    } else if s == "r" || s == "R" {
+                        // Reset the zoom and translation to their initial values
+                        data.zoom = 1.0;
+                        data.translation = [0.0, 0.0];
+                        ctx.request_paint();
                     }
                 }
             }

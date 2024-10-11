@@ -54,6 +54,10 @@ To enable debug mode and display additional information, press the `d` key durin
 
 To pause/resume the program, press the `p` key during program operation.
 
+## Resetting Zoom and Translation
+
+To reset the cube's position and zoom level to their defaults, press the `r` key during program operation.
+
 ## Quitting
 
 To quit the program, press the `q` key during program operation.
