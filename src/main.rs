@@ -1,4 +1,3 @@
-use clap::Parser;
 use druid::kurbo::Point;
 use druid::text::FontFamily;
 use druid::widget::prelude::*;
@@ -15,15 +14,6 @@ struct AppState {
     /// Current rotation angle of the cube
     angle: f64,
     /// Enable debug mode
-    debug: bool,
-}
-
-/// Command-line arguments
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Enable debug mode
-    #[arg(short, long)]
     debug: bool,
 }
 
@@ -50,6 +40,8 @@ impl Widget<AppState> for CubeWidget {
         match event {
             Event::WindowConnected => {
                 ctx.request_timer(std::time::Duration::from_millis(16));
+                // Request focus to receive keyboard events
+                ctx.request_focus();
             }
             Event::Timer(_) => {
                 data.angle += 0.02;
@@ -58,6 +50,14 @@ impl Widget<AppState> for CubeWidget {
                 }
                 ctx.request_timer(std::time::Duration::from_millis(16));
                 ctx.request_paint();
+            }
+            Event::KeyDown(key_event) => {
+                if let druid::keyboard_types::Key::Character(s) = &key_event.key {
+                    if s == "d" || s == "D" {
+                        data.debug = !data.debug;
+                        ctx.request_paint();
+                    }
+                }
             }
             _ => {}
         }
@@ -458,15 +458,13 @@ fn apply_lighting(color: Color, intensity: f64) -> Color {
 
 /// Main function
 pub fn main() -> Result<(), PlatformError> {
-    let args = Args::parse();
-
     let main_window = WindowDesc::new(CubeWidget::new())
         .title(LocalizedString::new("3D Cube with Per-Pixel Lighting"))
         .window_size((400.0, 400.0));
 
     let initial_state = AppState {
         angle: 0.0,
-        debug: args.debug,
+        debug: false,
     };
 
     AppLauncher::with_window(main_window).launch(initial_state)?;

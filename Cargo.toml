@@ -9,4 +9,3 @@ license = "MIT"
 
 [dependencies]
 druid = "0.8.3"
-clap = { version = "4.5.18", features = ["derive"] }

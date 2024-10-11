@@ -11,7 +11,6 @@ A 3D cube renderer with per-pixel lighting using Rust and the Druid GUI framewor
 - **Per-Pixel Lighting:** Implements per-pixel lighting for realistic shading across the cube's surface.
 - **Rotating 3D Cube:** Continuously rotates a 3D cube around its axis.
 - **Debug Mode:** Displays frames per second (FPS), rotation angle, light position, and program information.
-- **Command-Line Arguments:** Use `--debug` to enable debug mode.
 
 ## Prerequisites
 
@@ -44,17 +43,7 @@ cargo run --release
 ```
 ## Enabling Debug Mode
 
-To enable debug mode and display additional information, use the `--debug` or `-d` flag:
-
-```bash
-cargo run --release -- --debug
-```
-
-_Note_: The `--` separator is used to pass arguments to the application rather than to Cargo.
-
-## Command-Line Arguments
-
-* `-d`, `--debug`: Enables debug mode to display FPS, rotation angle, light position, and program name with version.
+To enable debug mode and display additional information, press the `d` key during program operation.
 
 ## How It Works
 * **3D Transformations:** Applies rotation matrices to simulate cube rotation around the X and Y axes.
@@ -67,7 +56,6 @@ _Note_: The `--` separator is used to pass arguments to the application rather t
 The project uses the following crates:
 
 * `druid`: A data-first Rust-native UI design toolkit.
-* `clap`: A simple to use, efficient, and full-featured command-line argument parser.
 
 These dependencies are specified in `Cargo.toml` and will be automatically fetched when you build the project.
 
