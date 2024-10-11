@@ -62,6 +62,7 @@ impl Widget<AppState> for CubeWidget {
                         ctx.request_paint();
                     } else if s == "p" || s == "P" {
                         data.paused = !data.paused;
+                        ctx.request_paint();
                     }
                 }
             }
@@ -91,16 +92,6 @@ impl Widget<AppState> for CubeWidget {
 
     /// Paint the cube widget
     fn paint(&mut self, ctx: &mut PaintCtx, data: &AppState, _env: &Env) {
-        // Update FPS calculation
-        self.frames_since_last_update += 1;
-        let now = Instant::now();
-        let duration = now.duration_since(self.last_fps_calculation);
-        if duration.as_secs_f64() >= 1.0 {
-            self.fps = self.frames_since_last_update as f64 / duration.as_secs_f64();
-            self.frames_since_last_update = 0;
-            self.last_fps_calculation = now;
-        }
-
         let size = ctx.size();
         let width = size.width as usize;
         let height = size.height as usize;
@@ -243,6 +234,16 @@ impl Widget<AppState> for CubeWidget {
 
         // Add debug info if debug mode is enabled
         if data.debug {
+            // Update FPS calculation
+            self.frames_since_last_update += 1;
+            let now = Instant::now();
+            let duration = now.duration_since(self.last_fps_calculation);
+            if duration.as_secs_f64() >= 1.0 {
+                self.fps = self.frames_since_last_update as f64 / duration.as_secs_f64();
+                self.frames_since_last_update = 0;
+                self.last_fps_calculation = now;
+            }
+
             // Draw program name and version
             let text = format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             let text_layout = ctx
@@ -293,19 +294,28 @@ impl Widget<AppState> for CubeWidget {
 
         // Display 'Paused' if the simulation is paused
         if data.paused {
+            // Draw a semi-transparent overlay to dim the background
+            let overlay_rect = size.to_rect();
+            ctx.fill(overlay_rect, &Color::rgba8(0, 0, 0, 128)); // 50% transparent black
+
             let text = "Paused";
             let text_layout = ctx
                 .text()
                 .new_text_layout(text)
-                .font(FontFamily::SYSTEM_UI, 24.0)
+                .font(FontFamily::SYSTEM_UI, 36.0)
                 .text_color(Color::WHITE)
                 .build()
                 .unwrap();
-            let text_size = text_layout.size(); // The 'size()' method is now recognized
+
+            let text_size = text_layout.size();
+
+            // Calculate the position to center the text
             let pos = (
                 (size.width - text_size.width) / 2.0,
                 (size.height - text_size.height) / 2.0,
             );
+
+            // Draw the text
             ctx.draw_text(&text_layout, pos);
         }
     }

@@ -45,6 +45,10 @@ cargo run --release
 
 To enable debug mode and display additional information, press the `d` key during program operation.
 
+## Pausing/Resuming
+
+To pause/resume the program, press the `p` key during program operation.
+
 ## How It Works
 * **3D Transformations:** Applies rotation matrices to simulate cube rotation around the X and Y axes.
 * **Rasterization:** Converts 3D triangles into pixels on the 2D screen.
