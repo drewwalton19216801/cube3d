@@ -70,9 +70,9 @@ These dependencies are specified in `Cargo.toml` and will be automatically fetch
 
 ## Learning Resources
 
-* **Druid Documentation:** [https://linebender.org/druid/](<Druid Book>)
-* **Rust Programming Language:** [https://doc.rust-lang.org/book/](<Rust Book>)
-* **3D Graphics Basics:** [https://learnopengl.com/](<Learn OpenGL>)
+* **Druid Documentation:** [Druid Book](https://linebender.org/druid/)
+* **Rust Programming Language:** [Rust Book](https://doc.rust-lang.org/book/)
+* **3D Graphics Basics:** [Learn OpenGL](https://learnopengl.com/)
 
 ## Contributing
 
@@ -80,7 +80,7 @@ Contributions are welcome! Feel free to submit a pull request or open an issue f
 
 ## License
 
-This project is licensed under the MIT License. See the [https://github.com/drewwalton19216801/cube3d/blob/dev/LICENSE.md](License) file for details.
+This project is licensed under the MIT License. See the [License](https://github.com/drewwalton19216801/cube3d/blob/dev/LICENSE.md) file for details.
 
 ## Acknowledgements
 
