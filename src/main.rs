@@ -6,17 +6,17 @@ use druid::{
     piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
     AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc,
 };
-use std::f64::consts::PI;
 use std::time::Instant;
 
 /// Application state
 #[derive(Clone, Data)]
 struct AppState {
-    /// Current rotation angle of the cube
-    angle: f64,
+    /// Rotation angles around the x and y axes
+    rotation_x: f64,
+    rotation_y: f64,
     /// Enable debug mode
     debug: bool,
-    /// Simulation paused
+    /// Simulation paused (optional, can be removed)
     paused: bool,
     /// Wireframe mode enabled
     wireframe: bool,
@@ -27,6 +27,8 @@ struct CubeWidget {
     frames_since_last_update: usize,
     last_fps_calculation: Instant,
     fps: f64,
+    is_dragging: bool,
+    last_mouse_pos: Option<Point>,
 }
 
 impl CubeWidget {
@@ -35,28 +37,45 @@ impl CubeWidget {
             frames_since_last_update: 0,
             last_fps_calculation: Instant::now(),
             fps: 0.0,
+            is_dragging: false,
+            last_mouse_pos: None,
         }
     }
 }
+
 
 impl Widget<AppState> for CubeWidget {
     /// Handle events for the cube widget
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut AppState, _env: &Env) {
         match event {
             Event::WindowConnected => {
-                ctx.request_timer(std::time::Duration::from_millis(16));
+                ctx.request_paint();
                 // Request focus to receive keyboard events
                 ctx.request_focus();
             }
-            Event::Timer(_) => {
-                if !data.paused {
-                    data.angle += 0.02;
-                    if data.angle > 2.0 * PI {
-                        data.angle -= 2.0 * PI;
-                    }
-                    ctx.request_paint();
+            Event::MouseDown(mouse_event) => {
+                if mouse_event.button.is_left() {
+                    self.is_dragging = true;
+                    self.last_mouse_pos = Some(mouse_event.pos);
                 }
-                ctx.request_timer(std::time::Duration::from_millis(16));
+            }
+            Event::MouseUp(mouse_event) => {
+                if mouse_event.button.is_left() {
+                    self.is_dragging = false;
+                    self.last_mouse_pos = None;
+                }
+            }
+            Event::MouseMove(mouse_event) => {
+                if self.is_dragging {
+                    if let Some(last_pos) = self.last_mouse_pos {
+                        let dx = mouse_event.pos.x - last_pos.x;
+                        let dy = mouse_event.pos.y - last_pos.y;
+                        data.rotation_y += dx * 0.01;
+                        data.rotation_x += dy * 0.01;
+                        ctx.request_paint();
+                    }
+                    self.last_mouse_pos = Some(mouse_event.pos);
+                }
             }
             Event::KeyDown(key_event) => {
                 if let druid::keyboard_types::Key::Character(s) = &key_event.key {
@@ -121,6 +140,14 @@ impl Widget<AppState> for CubeWidget {
         let mut pixel_data = vec![0u8; width * height * 4];
         let mut z_buffer = vec![std::f64::INFINITY; width * height];
 
+        // Clear background
+        for pixel in pixel_data.chunks_exact_mut(4) {
+            pixel[0] = 0;
+            pixel[1] = 0;
+            pixel[2] = 0;
+            pixel[3] = 255;
+        }
+
         // Define cube vertices
         let vertices = [
             (-1.0, -1.0, -1.0), // 0
@@ -173,25 +200,28 @@ impl Widget<AppState> for CubeWidget {
         let light_pos = [2.0, 2.0, -5.0];
 
         // Rotation matrices
-        let (sin_a, cos_a) = data.angle.sin_cos();
-        let rotation_y = [
-            [cos_a, 0.0, sin_a],
-            [0.0, 1.0, 0.0],
-            [-sin_a, 0.0, cos_a],
-        ];
+        let (sin_rx, cos_rx) = data.rotation_x.sin_cos();
+        let (sin_ry, cos_ry) = data.rotation_y.sin_cos();
+
         let rotation_x = [
             [1.0, 0.0, 0.0],
-            [0.0, cos_a, -sin_a],
-            [0.0, sin_a, cos_a],
+            [0.0, cos_rx, -sin_rx],
+            [0.0, sin_rx, cos_rx],
         ];
+
+        let rotation_y = [
+            [cos_ry, 0.0, sin_ry],
+            [0.0, 1.0, 0.0],
+            [-sin_ry, 0.0, cos_ry],
+        ];
+
+        // Combined rotation matrix
+        let rotation = matrix_multiply(&rotation_y, &rotation_x);
 
         // Transform and project vertices
         let transformed_vertices: Vec<[f64; 3]> = vertices
             .iter()
-            .map(|&(x, y, z)| {
-                let [x, y, z] = multiply_matrix_vector(&rotation_y, &[x, y, z]);
-                multiply_matrix_vector(&rotation_x, &[x, y, z])
-            })
+            .map(|&(x, y, z)| multiply_matrix_vector(&rotation, &[x, y, z]))
             .collect();
 
         // Compute vertex normals
@@ -298,8 +328,11 @@ impl Widget<AppState> for CubeWidget {
                 .unwrap();
             ctx.draw_text(&text_layout, (10.0, 10.0));
 
-            // Draw angle
-            let text = format!("Angle: {:.2}", data.angle);
+            // Draw rotation angles
+            let text = format!(
+                "Rotation X: {:.2}, Rotation Y: {:.2}",
+                data.rotation_x, data.rotation_y
+            );
             let text_layout = ctx
                 .text()
                 .new_text_layout(text)
@@ -483,6 +516,19 @@ fn multiply_matrix_vector(matrix: &[[f64; 3]; 3], vector: &[f64; 3]) -> [f64; 3]
     result
 }
 
+/// Multiplies two 3x3 matrices
+fn matrix_multiply(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut result = [[0.0; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            for k in 0..3 {
+                result[i][j] += a[i][k] * b[k][j];
+            }
+        }
+    }
+    result
+}
+
 /// Calculates the normal vector of a triangle
 fn calculate_normal(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> [f64; 3] {
     let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
@@ -580,11 +626,12 @@ fn draw_line(
 /// Main function
 pub fn main() -> Result<(), PlatformError> {
     let main_window = WindowDesc::new(CubeWidget::new())
-        .title(LocalizedString::new("3D Cube with Per-Pixel Lighting"))
+        .title(LocalizedString::new("3D Cube with Mouse Control"))
         .window_size((400.0, 400.0));
 
     let initial_state = AppState {
-        angle: 0.0,
+        rotation_x: 0.0,
+        rotation_y: 0.0,
         debug: false,
         paused: false,
         wireframe: false,
