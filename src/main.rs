@@ -3,7 +3,7 @@ use druid::text::FontFamily;
 use druid::widget::prelude::*;
 use druid::{
     commands,
-    piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
+    piet::{ImageBuf, ImageFormat, InterpolationMode, Text, TextLayout, TextLayoutBuilder},
     AppLauncher, Color, Data, LocalizedString, PlatformError, RenderContext, Widget, WindowDesc,
 };
 use std::time::Instant;
@@ -39,7 +39,7 @@ struct CubeWidget {
     /// Last mouse position
     last_mouse_pos: Point,
     /// Textures for cube faces
-    textures: Option<Vec<druid::piet::ImageBuf>>,
+    textures: Option<Vec<ImageBuf>>,
 }
 
 impl CubeWidget {
@@ -155,7 +155,8 @@ impl Widget<AppState> for CubeWidget {
         _env: &Env,
     ) {
     }
-    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &AppState, _data: &AppState, _env: &Env) {}
+    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &AppState, _data: &AppState, _env: &Env) {
+    }
     /// Determines the layout constraints for the cube widget
     fn layout(
         &mut self,
@@ -202,45 +203,175 @@ impl Widget<AppState> for CubeWidget {
         // Define per-face vertices with positions and UVs
         let mut vertices = vec![
             // Front face
-            Vertex { position: [-1.0, -1.0, -1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, -1.0, -1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, 1.0, -1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [-1.0, 1.0, -1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex {
+                position: [-1.0, -1.0, -1.0],
+                uv: [0.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, -1.0, -1.0],
+                uv: [1.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, 1.0, -1.0],
+                uv: [1.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [-1.0, 1.0, -1.0],
+                uv: [0.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
             // Back face
-            Vertex { position: [1.0, -1.0, 1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [-1.0, -1.0, 1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [-1.0, 1.0, 1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, 1.0, 1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex {
+                position: [1.0, -1.0, 1.0],
+                uv: [0.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [-1.0, -1.0, 1.0],
+                uv: [1.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [-1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
             // Left face
-            Vertex { position: [-1.0, -1.0, 1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [-1.0, -1.0, -1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [-1.0, 1.0, -1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [-1.0, 1.0, 1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex {
+                position: [-1.0, -1.0, 1.0],
+                uv: [0.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [-1.0, -1.0, -1.0],
+                uv: [1.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [-1.0, 1.0, -1.0],
+                uv: [1.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [-1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
             // Right face
-            Vertex { position: [1.0, -1.0, -1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, -1.0, 1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, 1.0, 1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, 1.0, -1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex {
+                position: [1.0, -1.0, -1.0],
+                uv: [0.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, -1.0, 1.0],
+                uv: [1.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, 1.0, -1.0],
+                uv: [0.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
             // Bottom face
-            Vertex { position: [-1.0, -1.0, 1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, -1.0, 1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, -1.0, -1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [-1.0, -1.0, -1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex {
+                position: [-1.0, -1.0, 1.0],
+                uv: [0.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, -1.0, 1.0],
+                uv: [1.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, -1.0, -1.0],
+                uv: [1.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [-1.0, -1.0, -1.0],
+                uv: [0.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
             // Top face
-            Vertex { position: [-1.0, 1.0, -1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, 1.0, -1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [1.0, 1.0, 1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
-            Vertex { position: [-1.0, 1.0, 1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex {
+                position: [-1.0, 1.0, -1.0],
+                uv: [0.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, 1.0, -1.0],
+                uv: [1.0, 1.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [1.0, 1.0, 1.0],
+                uv: [1.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
+            Vertex {
+                position: [-1.0, 1.0, 1.0],
+                uv: [0.0, 0.0],
+                normal: [0.0; 3],
+                screen_position: [0.0; 2],
+            },
         ];
 
         // Define cube faces using indices into the vertices array
         let faces = [
-            (0, 1, 2, 3),    // Front face
-            (4, 5, 6, 7),    // Back face
-            (8, 9, 10, 11),  // Left face
+            (0, 1, 2, 3),     // Front face
+            (4, 5, 6, 7),     // Back face
+            (8, 9, 10, 11),   // Left face
             (12, 13, 14, 15), // Right face
             (16, 17, 18, 19), // Bottom face
             (20, 21, 22, 23), // Top face
+        ];
+
+        // Define face colors
+        let face_colors = [
+            Color::rgb8(255, 0, 0),   // Red
+            Color::rgb8(0, 255, 0),   // Green
+            Color::rgb8(0, 0, 255),   // Blue
+            Color::rgb8(255, 255, 0), // Yellow
+            Color::rgb8(255, 0, 255), // Magenta
+            Color::rgb8(0, 255, 255), // Cyan
         ];
 
         // Light source position in world space
@@ -250,17 +381,9 @@ impl Widget<AppState> for CubeWidget {
         let (sin_x, cos_x) = data.angle_x.sin_cos();
         let (sin_y, cos_y) = data.angle_y.sin_cos();
 
-        let rotation_x = [
-            [1.0, 0.0, 0.0],
-            [0.0, cos_x, -sin_x],
-            [0.0, sin_x, cos_x],
-        ];
+        let rotation_x = [[1.0, 0.0, 0.0], [0.0, cos_x, -sin_x], [0.0, sin_x, cos_x]];
 
-        let rotation_y = [
-            [cos_y, 0.0, sin_y],
-            [0.0, 1.0, 0.0],
-            [-sin_y, 0.0, cos_y],
-        ];
+        let rotation_y = [[cos_y, 0.0, sin_y], [0.0, 1.0, 0.0], [-sin_y, 0.0, cos_y]];
 
         // Combine rotations
         let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
@@ -281,7 +404,7 @@ impl Widget<AppState> for CubeWidget {
                 let screen_y = position[1] * scale + center.y;
                 vertex.position = position;
                 vertex.screen_position = [screen_x, screen_y];
-                *vertex
+                *vertex // Vertex implements Copy, so this is allowed
             })
             .collect();
 
@@ -300,20 +423,22 @@ impl Widget<AppState> for CubeWidget {
             }
         }
         for normal in vertex_normals.iter_mut() {
-            let length = (normal[0] * normal[0]
-                + normal[1] * normal[1]
-                + normal[2] * normal[2])
-                .sqrt();
+            let length =
+                (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
             normal[0] /= length;
             normal[1] /= length;
             normal[2] /= length;
         }
 
         // Update vertex normals
-        for (vertex, normal) in transformed_vertices.iter().zip(vertex_normals.iter()) {
-            let mut vertex = vertex.clone();
-            vertex.normal = *normal;
-        }
+        let transformed_vertices: Vec<Vertex> = transformed_vertices
+            .iter()
+            .zip(vertex_normals.iter())
+            .map(|(vertex, normal)| Vertex {
+                normal: *normal,
+                ..*vertex
+            })
+            .collect();
 
         if data.wireframe {
             // Draw edges (you can implement this part as needed)
@@ -322,6 +447,7 @@ impl Widget<AppState> for CubeWidget {
             if let Some(ref textures) = self.textures {
                 for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
                     let texture = &textures[face_index];
+                    let base_color = face_colors[face_index]; // Get the base color for this face
 
                     // Triangle 1: a, b, c
                     draw_triangle(
@@ -334,6 +460,7 @@ impl Widget<AppState> for CubeWidget {
                         height,
                         &light_pos_world,
                         texture,
+                        base_color, // Pass the base color
                     );
                     // Triangle 2: a, c, d
                     draw_triangle(
@@ -346,6 +473,7 @@ impl Widget<AppState> for CubeWidget {
                         height,
                         &light_pos_world,
                         texture,
+                        base_color, // Pass the base color
                     );
                 }
             }
@@ -353,7 +481,7 @@ impl Widget<AppState> for CubeWidget {
 
         // Create and draw the image
         let image = ctx
-            .make_image(width, height, &pixel_data, druid::piet::ImageFormat::RgbaSeparate)
+            .make_image(width, height, &pixel_data, ImageFormat::RgbaSeparate)
             .unwrap();
         ctx.draw_image(&image, size.to_rect(), InterpolationMode::NearestNeighbor);
 
@@ -371,10 +499,7 @@ impl Widget<AppState> for CubeWidget {
             ctx.draw_text(&text_layout, (10.0, 10.0));
 
             // Draw angles
-            let text = format!(
-                "Angle X: {:.2}, Angle Y: {:.2}",
-                data.angle_x, data.angle_y
-            );
+            let text = format!("Angle X: {:.2}, Angle Y: {:.2}", data.angle_x, data.angle_y);
             let text_layout = ctx
                 .text()
                 .new_text_layout(text)
@@ -461,7 +586,7 @@ impl Widget<AppState> for CubeWidget {
     }
 }
 
-// Vertex structure with position, screen position, normal, and UV coordinates
+/// Vertex structure with position, screen position, normal, and UV coordinates
 #[derive(Clone, Copy)]
 struct Vertex {
     position: [f64; 3],
@@ -480,36 +605,37 @@ fn draw_triangle(
     width: usize,
     height: usize,
     light_pos_world: &[f64; 3],
-    texture: &druid::piet::ImageBuf,
+    texture: &ImageBuf,
+    base_color: Color,
 ) {
     // Compute bounding box of the triangle
-    let min_x = v0
-        .screen_position[0]
+    let min_x = v0.screen_position[0]
         .min(v1.screen_position[0])
         .min(v2.screen_position[0])
         .floor()
         .max(0.0) as usize;
-    let max_x = v0
-        .screen_position[0]
+    let max_x = v0.screen_position[0]
         .max(v1.screen_position[0])
         .max(v2.screen_position[0])
         .ceil()
         .min(width as f64 - 1.0) as usize;
-    let min_y = v0
-        .screen_position[1]
+    let min_y = v0.screen_position[1]
         .min(v1.screen_position[1])
         .min(v2.screen_position[1])
         .floor()
         .max(0.0) as usize;
-    let max_y = v0
-        .screen_position[1]
+    let max_y = v0.screen_position[1]
         .max(v1.screen_position[1])
         .max(v2.screen_position[1])
         .ceil()
         .min(height as f64 - 1.0) as usize;
 
     // Precompute area of the triangle
-    let area = edge_function(&v0.screen_position, &v1.screen_position, &v2.screen_position);
+    let area = edge_function(
+        &v0.screen_position,
+        &v1.screen_position,
+        &v2.screen_position,
+    );
 
     // Precompute texture dimensions and data
     let tex_width = texture.width();
@@ -564,7 +690,7 @@ fn draw_triangle(
 
                     // Map UV coordinates to texture space
                     let tex_x = (u * (tex_width as f64 - 1.0)) as usize;
-                    let tex_y = (v * (tex_height as f64 - 1.0)) as usize;
+                    let tex_y = ((1.0 - v) * (tex_height as f64 - 1.0)) as usize; // Flip v coordinate
 
                     // Ensure tex_x and tex_y are within bounds
                     let tex_x = tex_x.min(tex_width - 1);
@@ -572,23 +698,35 @@ fn draw_triangle(
 
                     // Get the color from the texture
                     let tex_offset = (tex_y * tex_width + tex_x) * 4;
-                    let r = tex_data[tex_offset];
-                    let g = tex_data[tex_offset + 1];
-                    let b = tex_data[tex_offset + 2];
-                    let a = tex_data[tex_offset + 3];
+                    let tr = tex_data[tex_offset];
+                    let tg = tex_data[tex_offset + 1];
+                    let tb = tex_data[tex_offset + 2];
+                    let ta = tex_data[tex_offset + 3];
 
-                    let tex_color = Color::rgba8(r, g, b, a);
+                    // Get base face color components
+                    let (br, bg, bb, _ba) = base_color.as_rgba8();
+
+                    // Calculate texture alpha as a fraction between 0 and 1
+                    let ta_frac = ta as f64 / 255.0;
+
+                    // Perform alpha blending
+                    let r = (tr as f64 * ta_frac + br as f64 * (1.0 - ta_frac)) as u8;
+                    let g = (tg as f64 * ta_frac + bg as f64 * (1.0 - ta_frac)) as u8;
+                    let b = (tb as f64 * ta_frac + bb as f64 * (1.0 - ta_frac)) as u8;
+                    let a = 255; // Set alpha to fully opaque
+
+                    let combined_color = Color::rgba8(r, g, b, a);
 
                     // Apply lighting
-                    let shaded_color = apply_lighting(tex_color, light_intensity);
+                    let shaded_color = apply_lighting(combined_color, light_intensity);
 
                     // Set pixel color
                     let pixel_offset = offset * 4;
-                    let (r, g, b, a) = shaded_color.as_rgba8();
-                    pixel_data[pixel_offset] = r;
-                    pixel_data[pixel_offset + 1] = g;
-                    pixel_data[pixel_offset + 2] = b;
-                    pixel_data[pixel_offset + 3] = a;
+                    let (sr, sg, sb, sa) = shaded_color.as_rgba8();
+                    pixel_data[pixel_offset] = sr;
+                    pixel_data[pixel_offset + 1] = sg;
+                    pixel_data[pixel_offset + 2] = sb;
+                    pixel_data[pixel_offset + 3] = sa;
                 }
             }
         }
@@ -638,20 +776,15 @@ fn calculate_normal(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> [f64; 3] {
 }
 
 /// Calculates the light intensity based on the normal vector and light position
-fn calculate_light_intensity(
-    normal: &[f64; 3],
-    position: &[f64; 3],
-    light_pos: &[f64; 3],
-) -> f64 {
+fn calculate_light_intensity(normal: &[f64; 3], position: &[f64; 3], light_pos: &[f64; 3]) -> f64 {
     let light_dir = [
         light_pos[0] - position[0],
         light_pos[1] - position[1],
         light_pos[2] - position[2],
     ];
-    let length = (light_dir[0] * light_dir[0]
-        + light_dir[1] * light_dir[1]
-        + light_dir[2] * light_dir[2])
-        .sqrt();
+    let length =
+        (light_dir[0] * light_dir[0] + light_dir[1] * light_dir[1] + light_dir[2] * light_dir[2])
+            .sqrt();
     let light_dir = [
         light_dir[0] / length,
         light_dir[1] / length,
@@ -671,11 +804,12 @@ fn apply_lighting(color: Color, intensity: f64) -> Color {
 }
 
 /// Helper function to create textures with text using font8x8
-fn create_text_texture(text: &str, width: u32, height: u32) -> druid::piet::ImageBuf {
-    use image::{ImageBuffer, Rgba};
+fn create_text_texture(text: &str, width: u32, height: u32) -> ImageBuf {
     use font8x8::UnicodeFonts;
+    use image::{ImageBuffer, Rgba};
 
-    let mut img = ImageBuffer::from_pixel(width, height, Rgba([255, 255, 255, 255]));
+    // Create an image with a transparent background
+    let mut img = ImageBuffer::from_pixel(width, height, Rgba([0, 0, 0, 0])); // Transparent background
 
     let font_scale = 8; // Original font size (8x8 pixels)
     let scale_factor = 4; // Scale up the font by this factor
@@ -704,14 +838,15 @@ fn create_text_texture(text: &str, width: u32, height: u32) -> druid::piet::Imag
                 for (row, byte) in bitmap.iter().enumerate() {
                     for col in 0..8 {
                         if byte & (1 << col) != 0 {
-                            let x = ((char_num as u32 * scaled_font_size) + ((7 - col) as u32 * scale_factor)) as u32;
-                            let y = ((line_num as u32) * (scaled_font_size as u32) + (row as u32) * (scale_factor as u32)) as u32;
+                            let x = ((char_num as u32 * scaled_font_size) + ((7 - col as u32) * scale_factor)) as u32;
+                            let y = ((line_num as u32) * scaled_font_size + (row as u32 * scale_factor)) as u32;
                             for sx in 0..scale_factor {
                                 for sy in 0..scale_factor {
                                     let px = x + sx as u32;
                                     let py = y + sy as u32;
                                     if px < width && py < height {
                                         img.put_pixel(px, py, Rgba([0, 0, 0, 255]));
+                                        // Black text
                                     }
                                 }
                             }
@@ -724,13 +859,20 @@ fn create_text_texture(text: &str, width: u32, height: u32) -> druid::piet::Imag
 
     // Convert ImageBuffer to ImageBuf
     let raw_pixels = img.into_raw();
-    druid::piet::ImageBuf::from_raw(raw_pixels, druid::piet::ImageFormat::RgbaSeparate, width as usize, height as usize)
+    ImageBuf::from_raw(
+        raw_pixels,
+        ImageFormat::RgbaSeparate,
+        width as usize,
+        height as usize,
+    )
 }
 
 /// Main function
 pub fn main() -> Result<(), PlatformError> {
     let main_window = WindowDesc::new(CubeWidget::new())
-        .title(LocalizedString::new("3D Cube with Text on Faces"))
+        .title(LocalizedString::new(
+            "3D Cube with Text and Per-Pixel Lighting",
+        ))
         .window_size((600.0, 600.0));
 
     let initial_state = AppState {
