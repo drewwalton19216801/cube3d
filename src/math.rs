@@ -5,6 +5,16 @@ pub fn edge_function(a: &[f64; 2], b: &[f64; 2], c: &[f64; 2]) -> f64 {
     (c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])
 }
 
+/// Checks if a point is inside a triangle using the edge function
+pub fn point_in_triangle(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
+    let w0 = edge_function(&b, &c, &p);
+    let w1 = edge_function(&c, &a, &p);
+    let w2 = edge_function(&a, &b, &p);
+
+    (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0) || (w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0)
+}
+
+
 /// Multiplies a 3x3 matrix by a 3-dimensional vector
 pub fn multiply_matrix_vector(matrix: &[[f64; 3]; 3], vector: &[f64; 3]) -> [f64; 3] {
     let mut result = [0.0; 3];
