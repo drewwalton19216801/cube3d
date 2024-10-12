@@ -1,6 +1,6 @@
 use crate::graphics::{draw_line, draw_triangle};
 use crate::math::{
-    calculate_normal, multiply_matrices, multiply_matrix_vector,
+    calculate_normal, multiply_matrices, multiply_matrix_vector, point_in_triangle,
 };
 use crate::state::AppState;
 use crate::vertex::Vertex;
@@ -9,8 +9,8 @@ use druid::text::FontFamily;
 use druid::widget::prelude::*;
 use druid::{
     commands,
-    piet::{InterpolationMode, TextLayoutBuilder, Text, TextLayout},
-    Color, Widget,
+    piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
+    Color, RenderContext, Widget,
 };
 use std::time::Instant;
 
@@ -25,6 +25,8 @@ pub struct CubeWidget {
     dragging_translation: bool,
     /// Last mouse position
     last_mouse_pos: Point,
+    /// Widget size
+    size: Size,
 }
 
 impl CubeWidget {
@@ -36,7 +38,109 @@ impl CubeWidget {
             dragging_rotation: false,
             dragging_translation: false,
             last_mouse_pos: Point::ZERO,
+            size: Size::ZERO,
         }
+    }
+
+    /// Computes the projected vertices for the current state
+    fn compute_projected_vertices(&self, data: &AppState) -> Vec<Vertex> {
+        let center = Point::new(self.size.width / 2.0, self.size.height / 2.0);
+        let scale = (self.size.height.min(self.size.width) / 4.0) * data.zoom; // Adjusted scale
+
+        // Define cube vertices
+        let vertices = [
+            (-1.0, -1.0, -1.0), // 0
+            (1.0, -1.0, -1.0),  // 1
+            (1.0, 1.0, -1.0),   // 2
+            (-1.0, 1.0, -1.0),  // 3
+            (-1.0, -1.0, 1.0),  // 4
+            (1.0, -1.0, 1.0),   // 5
+            (1.0, 1.0, 1.0),    // 6
+            (-1.0, 1.0, 1.0),   // 7
+        ];
+
+        // Rotation matrices
+        let (sin_x, cos_x) = data.angle_x.sin_cos();
+        let (sin_y, cos_y) = data.angle_y.sin_cos();
+
+        let rotation_x = [
+            [1.0, 0.0, 0.0],
+            [0.0, cos_x, -sin_x],
+            [0.0, sin_x, cos_x],
+        ];
+
+        let rotation_y = [
+            [cos_y, 0.0, sin_y],
+            [0.0, 1.0, 0.0],
+            [-sin_y, 0.0, cos_y],
+        ];
+
+        // Combine rotations
+        let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
+
+        // Transform and project vertices
+        let transformed_vertices: Vec<[f64; 3]> = vertices
+            .iter()
+            .map(|&(x, y, z)| {
+                let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
+                // Apply translation in 3D space
+                [
+                    rotated[0] + data.translation[0] / scale,
+                    rotated[1] + data.translation[1] / scale,
+                    rotated[2],
+                ]
+            })
+            .collect();
+
+        // Compute vertex normals
+        let mut vertex_normals = vec![[0.0; 3]; vertices.len()];
+        let faces = [
+            (0, 1, 2, 3),
+            (5, 4, 7, 6),
+            (4, 0, 3, 7),
+            (1, 5, 6, 2),
+            (4, 5, 1, 0),
+            (3, 2, 6, 7),
+        ];
+
+        for &(a, b, c, d) in faces.iter() {
+            let normal = calculate_normal(
+                &transformed_vertices[a],
+                &transformed_vertices[b],
+                &transformed_vertices[c],
+            );
+            for &index in &[a, b, c, d] {
+                vertex_normals[index][0] += normal[0];
+                vertex_normals[index][1] += normal[1];
+                vertex_normals[index][2] += normal[2];
+            }
+        }
+        for normal in vertex_normals.iter_mut() {
+            let length = (normal[0] * normal[0]
+                + normal[1] * normal[1]
+                + normal[2] * normal[2])
+                .sqrt();
+            normal[0] /= length;
+            normal[1] /= length;
+            normal[2] /= length;
+        }
+
+        // Create vertices with normals and screen positions
+        let vertices_with_normals: Vec<Vertex> = transformed_vertices
+            .iter()
+            .zip(vertex_normals.iter())
+            .map(|(&position, &normal)| {
+                let screen_x = position[0] * scale + center.x;
+                let screen_y = position[1] * scale + center.y;
+                Vertex {
+                    position,
+                    screen_position: [screen_x, screen_y],
+                    normal,
+                }
+            })
+            .collect();
+
+        vertices_with_normals
     }
 }
 
@@ -88,16 +192,63 @@ impl Widget<AppState> for CubeWidget {
             }
             Event::MouseDown(mouse_event) => {
                 self.last_mouse_pos = mouse_event.pos;
-                match mouse_event.button {
-                    druid::MouseButton::Left => {
-                        self.dragging_rotation = true;
+                // Compute projected vertices
+                let vertices_with_normals = self.compute_projected_vertices(data);
+
+                // Define cube faces (each face is defined by 4 vertex indices)
+                let faces = [
+                    (0, 1, 2, 3),
+                    (5, 4, 7, 6),
+                    (4, 0, 3, 7),
+                    (1, 5, 6, 2),
+                    (4, 5, 1, 0),
+                    (3, 2, 6, 7),
+                ];
+
+                let mut clicked_inside_cube = false;
+                let click_point = [mouse_event.pos.x, mouse_event.pos.y];
+
+                for &(a, b, c, d) in &faces {
+                    // Triangle 1: a, b, c
+                    let v0 = &vertices_with_normals[a];
+                    let v1 = &vertices_with_normals[b];
+                    let v2 = &vertices_with_normals[c];
+                    if point_in_triangle(
+                        click_point,
+                        v0.screen_position,
+                        v1.screen_position,
+                        v2.screen_position,
+                    ) {
+                        clicked_inside_cube = true;
+                        break;
                     }
-                    druid::MouseButton::Right => {
-                        self.dragging_translation = true;
+                    // Triangle 2: a, c, d
+                    let v0 = &vertices_with_normals[a];
+                    let v1 = &vertices_with_normals[c];
+                    let v2 = &vertices_with_normals[d];
+                    if point_in_triangle(
+                        click_point,
+                        v0.screen_position,
+                        v1.screen_position,
+                        v2.screen_position,
+                    ) {
+                        clicked_inside_cube = true;
+                        break;
                     }
-                    _ => {}
                 }
-                ctx.set_active(true); // Capture mouse events
+
+                if clicked_inside_cube {
+                    match mouse_event.button {
+                        druid::MouseButton::Left => {
+                            self.dragging_rotation = true;
+                        }
+                        druid::MouseButton::Right => {
+                            self.dragging_translation = true;
+                        }
+                        _ => {}
+                    }
+                    ctx.set_active(true); // Capture mouse events
+                }
             }
             Event::MouseMove(mouse_event) => {
                 if self.dragging_rotation {
@@ -141,11 +292,14 @@ impl Widget<AppState> for CubeWidget {
     fn lifecycle(
         &mut self,
         _ctx: &mut LifeCycleCtx,
-        _event: &LifeCycle,
+        event: &LifeCycle,
         _data: &AppState,
         _env: &Env,
     ) {
-    }
+        if let LifeCycle::Size(size) = event {
+            self.size = *size;
+        }
+    }    
 
     fn update(
         &mut self,
@@ -164,7 +318,9 @@ impl Widget<AppState> for CubeWidget {
         _data: &AppState,
         _env: &Env,
     ) -> Size {
-        bc.max()
+        let size = bc.max();
+        self.size = size;
+        size
     }
 
     /// Paint the cube widget
@@ -182,24 +338,13 @@ impl Widget<AppState> for CubeWidget {
         let size = ctx.size();
         let width = size.width as usize;
         let height = size.height as usize;
-        let center = Point::new(size.width / 2.0, size.height / 2.0);
-        let scale = (size.height.min(size.width) / 4.0) * data.zoom; // Adjusted scale
 
         // Create pixel buffer and z-buffer
         let mut pixel_data = vec![0u8; width * height * 4];
         let mut z_buffer = vec![std::f64::INFINITY; width * height];
 
-        // Define cube vertices
-        let vertices = [
-            (-1.0, -1.0, -1.0), // 0
-            (1.0, -1.0, -1.0),  // 1
-            (1.0, 1.0, -1.0),   // 2
-            (-1.0, 1.0, -1.0),  // 3
-            (-1.0, -1.0, 1.0),  // 4
-            (1.0, -1.0, 1.0),   // 5
-            (1.0, 1.0, 1.0),    // 6
-            (-1.0, 1.0, 1.0),   // 7
-        ];
+        // Compute projected vertices
+        let vertices_with_normals = self.compute_projected_vertices(data);
 
         // Define cube faces (each face is defined by 4 vertex indices)
         let faces = [
@@ -239,78 +384,6 @@ impl Widget<AppState> for CubeWidget {
 
         // Light source position in world space
         let light_pos_world = [2.0, 2.0, -5.0];
-
-        // Rotation matrices
-        let (sin_x, cos_x) = data.angle_x.sin_cos();
-        let (sin_y, cos_y) = data.angle_y.sin_cos();
-
-        let rotation_x = [
-            [1.0, 0.0, 0.0],
-            [0.0, cos_x, -sin_x],
-            [0.0, sin_x, cos_x],
-        ];
-
-        let rotation_y = [
-            [cos_y, 0.0, sin_y],
-            [0.0, 1.0, 0.0],
-            [-sin_y, 0.0, cos_y],
-        ];
-
-        // Combine rotations
-        let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
-
-        // Transform and project vertices
-        let transformed_vertices: Vec<[f64; 3]> = vertices
-            .iter()
-            .map(|&(x, y, z)| {
-                let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
-                // Apply translation in 3D space
-                [
-                    rotated[0] + data.translation[0] / scale,
-                    rotated[1] + data.translation[1] / scale,
-                    rotated[2],
-                ]
-            })
-            .collect();
-
-        // Compute vertex normals
-        let mut vertex_normals = vec![[0.0; 3]; vertices.len()];
-        for &(a, b, c, d) in faces.iter() {
-            let normal = calculate_normal(
-                &transformed_vertices[a],
-                &transformed_vertices[b],
-                &transformed_vertices[c],
-            );
-            for &index in &[a, b, c, d] {
-                vertex_normals[index][0] += normal[0];
-                vertex_normals[index][1] += normal[1];
-                vertex_normals[index][2] += normal[2];
-            }
-        }
-        for normal in vertex_normals.iter_mut() {
-            let length = (normal[0] * normal[0]
-                + normal[1] * normal[1]
-                + normal[2] * normal[2])
-                .sqrt();
-            normal[0] /= length;
-            normal[1] /= length;
-            normal[2] /= length;
-        }
-
-        // Create vertices with normals and screen positions
-        let vertices_with_normals: Vec<Vertex> = transformed_vertices
-            .iter()
-            .zip(vertex_normals.iter())
-            .map(|(&position, &normal)| {
-                let screen_x = position[0] * scale + center.x;
-                let screen_y = position[1] * scale + center.y;
-                Vertex {
-                    position,
-                    screen_position: [screen_x, screen_y],
-                    normal,
-                }
-            })
-            .collect();
 
         if data.wireframe {
             // Draw edges
