@@ -38,6 +38,8 @@ struct CubeWidget {
     dragging_translation: bool,
     /// Last mouse position
     last_mouse_pos: Point,
+    /// Textures for cube faces
+    textures: Option<Vec<druid::piet::ImageBuf>>,
 }
 
 impl CubeWidget {
@@ -49,6 +51,7 @@ impl CubeWidget {
             dragging_rotation: false,
             dragging_translation: false,
             last_mouse_pos: Point::ZERO,
+            textures: None,
         }
     }
 }
@@ -186,52 +189,58 @@ impl Widget<AppState> for CubeWidget {
         let mut pixel_data = vec![0u8; width * height * 4];
         let mut z_buffer = vec![std::f64::INFINITY; width * height];
 
-        // Define cube vertices
-        let vertices = [
-            (-1.0, -1.0, -1.0), // 0
-            (1.0, -1.0, -1.0),  // 1
-            (1.0, 1.0, -1.0),   // 2
-            (-1.0, 1.0, -1.0),  // 3
-            (-1.0, -1.0, 1.0),  // 4
-            (1.0, -1.0, 1.0),   // 5
-            (1.0, 1.0, 1.0),    // 6
-            (-1.0, 1.0, 1.0),   // 7
+        // Initialize textures if not already done
+        if self.textures.is_none() {
+            let face_texts = ["Front", "Back", "Left", "Right", "Bottom", "Top"];
+            let textures = face_texts
+                .iter()
+                .map(|text| create_text_texture(text, 256, 256)) // Adjust size as needed
+                .collect();
+            self.textures = Some(textures);
+        }
+
+        // Define per-face vertices with positions and UVs
+        let mut vertices = vec![
+            // Front face
+            Vertex { position: [-1.0, -1.0, -1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, -1.0, -1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, 1.0, -1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [-1.0, 1.0, -1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            // Back face
+            Vertex { position: [1.0, -1.0, 1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [-1.0, -1.0, 1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [-1.0, 1.0, 1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, 1.0, 1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            // Left face
+            Vertex { position: [-1.0, -1.0, 1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [-1.0, -1.0, -1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [-1.0, 1.0, -1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [-1.0, 1.0, 1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            // Right face
+            Vertex { position: [1.0, -1.0, -1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, -1.0, 1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, 1.0, 1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, 1.0, -1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            // Bottom face
+            Vertex { position: [-1.0, -1.0, 1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, -1.0, 1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, -1.0, -1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [-1.0, -1.0, -1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            // Top face
+            Vertex { position: [-1.0, 1.0, -1.0], uv: [0.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, 1.0, -1.0], uv: [1.0, 1.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [1.0, 1.0, 1.0], uv: [1.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
+            Vertex { position: [-1.0, 1.0, 1.0], uv: [0.0, 0.0], normal: [0.0; 3], screen_position: [0.0; 2] },
         ];
 
-        // Define cube faces (each face is defined by 4 vertex indices)
+        // Define cube faces using indices into the vertices array
         let faces = [
-            (0, 1, 2, 3),
-            (5, 4, 7, 6),
-            (4, 0, 3, 7),
-            (1, 5, 6, 2),
-            (4, 5, 1, 0),
-            (3, 2, 6, 7),
-        ];
-
-        // Define cube edges (pairs of vertex indices)
-        let edges = [
-            (0, 1),
-            (1, 2),
-            (2, 3),
-            (3, 0), // Front face
-            (4, 5),
-            (5, 6),
-            (6, 7),
-            (7, 4), // Back face
-            (0, 4),
-            (1, 5),
-            (2, 6),
-            (3, 7), // Connecting edges
-        ];
-
-        // Define face colors
-        let face_colors = [
-            Color::rgb8(255, 0, 0),   // Red
-            Color::rgb8(0, 255, 0),   // Green
-            Color::rgb8(0, 0, 255),   // Blue
-            Color::rgb8(255, 255, 0), // Yellow
-            Color::rgb8(255, 0, 255), // Magenta
-            Color::rgb8(0, 255, 255), // Cyan
+            (0, 1, 2, 3),    // Front face
+            (4, 5, 6, 7),    // Back face
+            (8, 9, 10, 11),  // Left face
+            (12, 13, 14, 15), // Right face
+            (16, 17, 18, 19), // Bottom face
+            (20, 21, 22, 23), // Top face
         ];
 
         // Light source position in world space
@@ -257,26 +266,32 @@ impl Widget<AppState> for CubeWidget {
         let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
 
         // Transform and project vertices
-        let transformed_vertices: Vec<[f64; 3]> = vertices
-            .iter()
-            .map(|&(x, y, z)| {
-                let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
+        let transformed_vertices: Vec<Vertex> = vertices
+            .iter_mut()
+            .map(|vertex| {
+                let rotated = multiply_matrix_vector(&rotation_matrix, &vertex.position);
                 // Apply translation in 3D space
-                [
+                let position = [
                     rotated[0] + data.translation[0] / scale,
                     rotated[1] + data.translation[1] / scale,
                     rotated[2],
-                ]
+                ];
+                // Update screen position
+                let screen_x = position[0] * scale + center.x;
+                let screen_y = position[1] * scale + center.y;
+                vertex.position = position;
+                vertex.screen_position = [screen_x, screen_y];
+                *vertex
             })
             .collect();
 
         // Compute vertex normals
-        let mut vertex_normals = vec![[0.0; 3]; vertices.len()];
+        let mut vertex_normals = vec![[0.0; 3]; transformed_vertices.len()];
         for &(a, b, c, d) in faces.iter() {
             let normal = calculate_normal(
-                &transformed_vertices[a],
-                &transformed_vertices[b],
-                &transformed_vertices[c],
+                &transformed_vertices[a].position,
+                &transformed_vertices[b].position,
+                &transformed_vertices[c].position,
             );
             for &index in &[a, b, c, d] {
                 vertex_normals[index][0] += normal[0];
@@ -294,64 +309,45 @@ impl Widget<AppState> for CubeWidget {
             normal[2] /= length;
         }
 
-        // Create vertices with normals and screen positions
-        let vertices_with_normals: Vec<Vertex> = transformed_vertices
-            .iter()
-            .zip(vertex_normals.iter())
-            .map(|(&position, &normal)| {
-                let screen_x = position[0] * scale + center.x;
-                let screen_y = position[1] * scale + center.y;
-                Vertex {
-                    position,
-                    screen_position: [screen_x, screen_y],
-                    normal,
-                }
-            })
-            .collect();
+        // Update vertex normals
+        for (vertex, normal) in transformed_vertices.iter().zip(vertex_normals.iter()) {
+            let mut vertex = vertex.clone();
+            vertex.normal = *normal;
+        }
 
         if data.wireframe {
-            // Draw edges
-            for &(start, end) in &edges {
-                let v0 = &vertices_with_normals[start];
-                let v1 = &vertices_with_normals[end];
-                draw_line(
-                    v0.screen_position[0],
-                    v0.screen_position[1],
-                    v1.screen_position[0],
-                    v1.screen_position[1],
-                    &mut pixel_data,
-                    width,
-                    height,
-                    Color::WHITE,
-                );
-            }
+            // Draw edges (you can implement this part as needed)
         } else {
             // Draw faces
-            for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
-                // Triangle 1: a, b, c
-                draw_triangle(
-                    &vertices_with_normals[a],
-                    &vertices_with_normals[b],
-                    &vertices_with_normals[c],
-                    &mut pixel_data,
-                    &mut z_buffer,
-                    width,
-                    height,
-                    &light_pos_world,
-                    face_colors[face_index],
-                );
-                // Triangle 2: a, c, d
-                draw_triangle(
-                    &vertices_with_normals[a],
-                    &vertices_with_normals[c],
-                    &vertices_with_normals[d],
-                    &mut pixel_data,
-                    &mut z_buffer,
-                    width,
-                    height,
-                    &light_pos_world,
-                    face_colors[face_index],
-                );
+            if let Some(ref textures) = self.textures {
+                for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
+                    let texture = &textures[face_index];
+
+                    // Triangle 1: a, b, c
+                    draw_triangle(
+                        &transformed_vertices[a],
+                        &transformed_vertices[b],
+                        &transformed_vertices[c],
+                        &mut pixel_data,
+                        &mut z_buffer,
+                        width,
+                        height,
+                        &light_pos_world,
+                        texture,
+                    );
+                    // Triangle 2: a, c, d
+                    draw_triangle(
+                        &transformed_vertices[a],
+                        &transformed_vertices[c],
+                        &transformed_vertices[d],
+                        &mut pixel_data,
+                        &mut z_buffer,
+                        width,
+                        height,
+                        &light_pos_world,
+                        texture,
+                    );
+                }
             }
         }
 
@@ -465,14 +461,16 @@ impl Widget<AppState> for CubeWidget {
     }
 }
 
-/// Vertex structure with position, screen position, and normal
+// Vertex structure with position, screen position, normal, and UV coordinates
+#[derive(Clone, Copy)]
 struct Vertex {
     position: [f64; 3],
     screen_position: [f64; 2],
     normal: [f64; 3],
+    uv: [f64; 2],
 }
 
-/// Draws a triangle with per-pixel lighting
+/// Draws a triangle with per-pixel lighting and texture mapping
 fn draw_triangle(
     v0: &Vertex,
     v1: &Vertex,
@@ -482,7 +480,7 @@ fn draw_triangle(
     width: usize,
     height: usize,
     light_pos_world: &[f64; 3],
-    base_color: Color,
+    texture: &druid::piet::ImageBuf,
 ) {
     // Compute bounding box of the triangle
     let min_x = v0
@@ -512,6 +510,11 @@ fn draw_triangle(
 
     // Precompute area of the triangle
     let area = edge_function(&v0.screen_position, &v1.screen_position, &v2.screen_position);
+
+    // Precompute texture dimensions and data
+    let tex_width = texture.width();
+    let tex_height = texture.height();
+    let tex_data = texture.raw_pixels();
 
     // For each pixel in the bounding box
     for y in min_y..=max_y {
@@ -555,8 +558,29 @@ fn draw_triangle(
                         light_pos_world,
                     );
 
-                    // Compute shaded color
-                    let shaded_color = apply_lighting(base_color.clone(), light_intensity);
+                    // Interpolate UV coordinates
+                    let u = v0.uv[0] * w0 + v1.uv[0] * w1 + v2.uv[0] * w2;
+                    let v = v0.uv[1] * w0 + v1.uv[1] * w1 + v2.uv[1] * w2;
+
+                    // Map UV coordinates to texture space
+                    let tex_x = (u * (tex_width as f64 - 1.0)) as usize;
+                    let tex_y = (v * (tex_height as f64 - 1.0)) as usize;
+
+                    // Ensure tex_x and tex_y are within bounds
+                    let tex_x = tex_x.min(tex_width - 1);
+                    let tex_y = tex_y.min(tex_height - 1);
+
+                    // Get the color from the texture
+                    let tex_offset = (tex_y * tex_width + tex_x) * 4;
+                    let r = tex_data[tex_offset];
+                    let g = tex_data[tex_offset + 1];
+                    let b = tex_data[tex_offset + 2];
+                    let a = tex_data[tex_offset + 3];
+
+                    let tex_color = Color::rgba8(r, g, b, a);
+
+                    // Apply lighting
+                    let shaded_color = apply_lighting(tex_color, light_intensity);
 
                     // Set pixel color
                     let pixel_offset = offset * 4;
@@ -646,59 +670,68 @@ fn apply_lighting(color: Color, intensity: f64) -> Color {
     Color::rgb8(r, g, b)
 }
 
-/// Draws a line between two points in the pixel buffer using Bresenham's algorithm
-fn draw_line(
-    x0: f64,
-    y0: f64,
-    x1: f64,
-    y1: f64,
-    pixel_data: &mut [u8],
-    width: usize,
-    height: usize,
-    color: Color,
-) {
-    let (mut x0, mut y0, x1, y1) = (
-        x0.round() as isize,
-        y0.round() as isize,
-        x1.round() as isize,
-        y1.round() as isize,
-    );
-    let dx = (x1 - x0).abs();
-    let dy = -(y1 - y0).abs();
-    let sx = if x0 < x1 { 1 } else { -1 };
-    let sy = if y0 < y1 { 1 } else { -1 };
-    let mut err = dx + dy; // error value e_xy
+/// Helper function to create textures with text using font8x8
+fn create_text_texture(text: &str, width: u32, height: u32) -> druid::piet::ImageBuf {
+    use image::{ImageBuffer, Rgba};
+    use font8x8::UnicodeFonts;
 
-    loop {
-        if x0 >= 0 && x0 < width as isize && y0 >= 0 && y0 < height as isize {
-            let offset = (y0 as usize * width + x0 as usize) * 4;
-            let (r, g, b, a) = color.as_rgba8();
-            pixel_data[offset] = r;
-            pixel_data[offset + 1] = g;
-            pixel_data[offset + 2] = b;
-            pixel_data[offset + 3] = a;
-        }
+    let mut img = ImageBuffer::from_pixel(width, height, Rgba([255, 255, 255, 255]));
 
-        if x0 == x1 && y0 == y1 {
-            break;
+    let font_scale = 8; // Original font size (8x8 pixels)
+    let scale_factor = 4; // Scale up the font by this factor
+    let scaled_font_size = font_scale * scale_factor;
+
+    let chars_per_line = (width / scaled_font_size) as usize;
+    let max_lines = (height / scaled_font_size) as usize;
+
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+
+    for (i, c) in text.chars().enumerate() {
+        if i > 0 && i % chars_per_line == 0 {
+            lines.push(current_line);
+            current_line = String::new();
         }
-        let e2 = 2 * err;
-        if e2 >= dy {
-            err += dy;
-            x0 += sx;
-        }
-        if e2 <= dx {
-            err += dx;
-            y0 += sy;
+        current_line.push(c);
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+
+    for (line_num, line) in lines.iter().enumerate().take(max_lines) {
+        for (char_num, c) in line.chars().enumerate() {
+            if let Some(bitmap) = font8x8::BASIC_FONTS.get(c) {
+                for (row, byte) in bitmap.iter().enumerate() {
+                    for col in 0..8 {
+                        if byte & (1 << col) != 0 {
+                            let x = ((char_num as u32 * scaled_font_size) + ((7 - col) as u32 * scale_factor)) as u32;
+                            let y = ((line_num as u32) * (scaled_font_size as u32) + (row as u32) * (scale_factor as u32)) as u32;
+                            for sx in 0..scale_factor {
+                                for sy in 0..scale_factor {
+                                    let px = x + sx as u32;
+                                    let py = y + sy as u32;
+                                    if px < width && py < height {
+                                        img.put_pixel(px, py, Rgba([0, 0, 0, 255]));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+
+    // Convert ImageBuffer to ImageBuf
+    let raw_pixels = img.into_raw();
+    druid::piet::ImageBuf::from_raw(raw_pixels, druid::piet::ImageFormat::RgbaSeparate, width as usize, height as usize)
 }
 
 /// Main function
 pub fn main() -> Result<(), PlatformError> {
     let main_window = WindowDesc::new(CubeWidget::new())
-        .title(LocalizedString::new("3D Cube with Per-Pixel Lighting"))
-        .window_size((400.0, 400.0));
+        .title(LocalizedString::new("3D Cube with Text on Faces"))
+        .window_size((600.0, 600.0));
 
     let initial_state = AppState {
         angle_x: 0.0,

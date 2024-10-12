@@ -9,3 +9,5 @@ license = "MIT"
 
 [dependencies]
 druid = "0.8.3"
+image = "0.25.2"
+font8x8 = "0.3.1"
