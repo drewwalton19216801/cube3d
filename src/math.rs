@@ -14,14 +14,11 @@ pub fn point_in_triangle(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> 
     (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0) || (w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0)
 }
 
-
 /// Multiplies a 3x3 matrix by a 3-dimensional vector
 pub fn multiply_matrix_vector(matrix: &[[f64; 3]; 3], vector: &[f64; 3]) -> [f64; 3] {
     let mut result = [0.0; 3];
     for i in 0..3 {
-        for j in 0..3 {
-            result[i] += matrix[i][j] * vector[j];
-        }
+        result[i] = (0..3).map(|j| matrix[i][j] * vector[j]).sum();
     }
     result
 }
