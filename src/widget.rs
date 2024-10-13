@@ -191,99 +191,107 @@ impl Widget<AppState> for CubeWidget {
                 }
             }
             Event::MouseDown(mouse_event) => {
-                self.last_mouse_pos = mouse_event.pos;
-                // Compute projected vertices
-                let vertices_with_normals = self.compute_projected_vertices(data);
+                if !data.paused {
+                    self.last_mouse_pos = mouse_event.pos;
+                    // Compute projected vertices
+                    let vertices_with_normals = self.compute_projected_vertices(data);
 
-                // Define cube faces (each face is defined by 4 vertex indices)
-                let faces = [
-                    (0, 1, 2, 3),
-                    (5, 4, 7, 6),
-                    (4, 0, 3, 7),
-                    (1, 5, 6, 2),
-                    (4, 5, 1, 0),
-                    (3, 2, 6, 7),
-                ];
+                    // Define cube faces (each face is defined by 4 vertex indices)
+                    let faces = [
+                        (0, 1, 2, 3),
+                        (5, 4, 7, 6),
+                        (4, 0, 3, 7),
+                        (1, 5, 6, 2),
+                        (4, 5, 1, 0),
+                        (3, 2, 6, 7),
+                    ];
 
-                let mut clicked_inside_cube = false;
-                let click_point = [mouse_event.pos.x, mouse_event.pos.y];
+                    let mut clicked_inside_cube = false;
+                    let click_point = [mouse_event.pos.x, mouse_event.pos.y];
 
-                for &(a, b, c, d) in &faces {
-                    // Triangle 1: a, b, c
-                    let v0 = &vertices_with_normals[a];
-                    let v1 = &vertices_with_normals[b];
-                    let v2 = &vertices_with_normals[c];
-                    if point_in_triangle(
-                        click_point,
-                        v0.screen_position,
-                        v1.screen_position,
-                        v2.screen_position,
-                    ) {
-                        clicked_inside_cube = true;
-                        break;
-                    }
-                    // Triangle 2: a, c, d
-                    let v0 = &vertices_with_normals[a];
-                    let v1 = &vertices_with_normals[c];
-                    let v2 = &vertices_with_normals[d];
-                    if point_in_triangle(
-                        click_point,
-                        v0.screen_position,
-                        v1.screen_position,
-                        v2.screen_position,
-                    ) {
-                        clicked_inside_cube = true;
-                        break;
-                    }
-                }
-
-                if clicked_inside_cube {
-                    match mouse_event.button {
-                        druid::MouseButton::Left => {
-                            self.dragging_rotation = true;
+                    for &(a, b, c, d) in &faces {
+                        // Triangle 1: a, b, c
+                        let v0 = &vertices_with_normals[a];
+                        let v1 = &vertices_with_normals[b];
+                        let v2 = &vertices_with_normals[c];
+                        if point_in_triangle(
+                            click_point,
+                            v0.screen_position,
+                            v1.screen_position,
+                            v2.screen_position,
+                        ) {
+                            clicked_inside_cube = true;
+                            break;
                         }
-                        druid::MouseButton::Right => {
-                            self.dragging_translation = true;
+                        // Triangle 2: a, c, d
+                        let v0 = &vertices_with_normals[a];
+                        let v1 = &vertices_with_normals[c];
+                        let v2 = &vertices_with_normals[d];
+                        if point_in_triangle(
+                            click_point,
+                            v0.screen_position,
+                            v1.screen_position,
+                            v2.screen_position,
+                        ) {
+                            clicked_inside_cube = true;
+                            break;
                         }
-                        _ => {}
                     }
-                    ctx.set_active(true); // Capture mouse events
+
+                    if clicked_inside_cube {
+                        match mouse_event.button {
+                            druid::MouseButton::Left => {
+                                self.dragging_rotation = true;
+                            }
+                            druid::MouseButton::Right => {
+                                self.dragging_translation = true;
+                            }
+                            _ => {}
+                        }
+                        ctx.set_active(true); // Capture mouse events
+                    }
                 }
             }
             Event::MouseMove(mouse_event) => {
-                if self.dragging_rotation {
-                    let delta = mouse_event.pos - self.last_mouse_pos;
-                    // Update rotation angles based on mouse movement
-                    data.angle_x += delta.y * 0.01; // Adjust sensitivity as needed
-                    data.angle_y += delta.x * 0.01;
-                    self.last_mouse_pos = mouse_event.pos;
-                    ctx.request_paint();
-                } else if self.dragging_translation {
-                    let delta = mouse_event.pos - self.last_mouse_pos;
-                    // Update translation based on mouse movement
-                    data.translation[0] += delta.x;
-                    data.translation[1] += delta.y;
-                    self.last_mouse_pos = mouse_event.pos;
-                    ctx.request_paint();
+                if !data.paused {
+                    if self.dragging_rotation {
+                        let delta = mouse_event.pos - self.last_mouse_pos;
+                        // Update rotation angles based on mouse movement
+                        data.angle_x += delta.y * 0.01; // Adjust sensitivity as needed
+                        data.angle_y += delta.x * 0.01;
+                        self.last_mouse_pos = mouse_event.pos;
+                        ctx.request_paint();
+                    } else if self.dragging_translation {
+                        let delta = mouse_event.pos - self.last_mouse_pos;
+                        // Update translation based on mouse movement
+                        data.translation[0] += delta.x;
+                        data.translation[1] += delta.y;
+                        self.last_mouse_pos = mouse_event.pos;
+                        ctx.request_paint();
+                    }
                 }
             }
             Event::MouseUp(mouse_event) => {
-                match mouse_event.button {
-                    druid::MouseButton::Left => {
-                        self.dragging_rotation = false;
+                if !data.paused {
+                    match mouse_event.button {
+                        druid::MouseButton::Left => {
+                            self.dragging_rotation = false;
+                        }
+                        druid::MouseButton::Right => {
+                            self.dragging_translation = false;
+                        }
+                        _ => {}
                     }
-                    druid::MouseButton::Right => {
-                        self.dragging_translation = false;
-                    }
-                    _ => {}
+                    ctx.set_active(false);
                 }
-                ctx.set_active(false);
             }
             Event::Wheel(wheel_event) => {
-                let delta = wheel_event.wheel_delta.y;
-                data.zoom *= 1.0 + delta * 0.001;
-                data.zoom = data.zoom.clamp(0.1, 10.0); // Clamp zoom level
-                ctx.request_paint();
+                if !data.paused {
+                    let delta = wheel_event.wheel_delta.y;
+                    data.zoom *= 1.0 + delta * 0.001;
+                    data.zoom = data.zoom.clamp(0.1, 10.0); // Clamp zoom level
+                    ctx.request_paint();
+                }
             }
             _ => {}
         }
