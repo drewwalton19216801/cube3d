@@ -391,7 +391,7 @@ impl Widget<AppState> for CubeWidget {
         ];
 
         // Light source position in world space
-        let light_pos_world = [2.0, 2.0, -5.0];
+        let light_pos_world = data.light_position;
 
         if data.wireframe {
             // Draw edges

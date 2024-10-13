@@ -17,4 +17,6 @@ pub struct AppState {
     pub wireframe: bool,
     /// Zoom level
     pub zoom: f64,
+    /// Light position in world space
+    pub light_position: [f64; 3],
 }

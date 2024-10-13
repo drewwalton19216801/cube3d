@@ -19,6 +19,7 @@ fn main() -> Result<(), PlatformError> {
         paused: false,
         wireframe: false,
         zoom: 1.0, // Initialize zoom level
+        light_position: [2.0, 2.0, -5.0],
     };
 
     AppLauncher::with_window(main_window).launch(initial_state)?;
