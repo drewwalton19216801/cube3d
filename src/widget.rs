@@ -158,6 +158,10 @@ impl Widget<AppState> for CubeWidget {
                         }
                         "p" | "P" => {
                             data.paused = !data.paused;
+                            // Reset any mouse events that were captured
+                            self.last_mouse_pos = Point::ZERO;
+                            self.dragging_rotation = false;
+                            self.dragging_translation = false;
                             ctx.request_paint();
                         }
                         "q" | "Q" => {
@@ -172,9 +176,12 @@ impl Widget<AppState> for CubeWidget {
                         }
                         "r" | "R" => {
                             if !data.paused {
-                                // Reset the zoom and translation to their initial values
-                                data.zoom = 1.0;
+                                // Reset to default values
+                                data.angle_x = 0.0;
+                                data.angle_y = 0.0;
                                 data.translation = [0.0, 0.0];
+                                data.zoom = 1.0;
+                                data.wireframe = false;
                                 ctx.request_paint();
                             }
                         }
