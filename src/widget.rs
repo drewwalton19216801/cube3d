@@ -1,7 +1,5 @@
 use crate::graphics::{draw_line, draw_triangle};
-use crate::math::{
-    calculate_normal, multiply_matrices, multiply_matrix_vector, point_in_triangle,
-};
+use crate::math::{calculate_normal, multiply_matrices, multiply_matrix_vector, point_in_triangle};
 use crate::state::AppState;
 use crate::vertex::Vertex;
 use druid::kurbo::Point;
@@ -63,17 +61,9 @@ impl CubeWidget {
         let (sin_x, cos_x) = data.angle_x.sin_cos();
         let (sin_y, cos_y) = data.angle_y.sin_cos();
 
-        let rotation_x = [
-            [1.0, 0.0, 0.0],
-            [0.0, cos_x, -sin_x],
-            [0.0, sin_x, cos_x],
-        ];
+        let rotation_x = [[1.0, 0.0, 0.0], [0.0, cos_x, -sin_x], [0.0, sin_x, cos_x]];
 
-        let rotation_y = [
-            [cos_y, 0.0, sin_y],
-            [0.0, 1.0, 0.0],
-            [-sin_y, 0.0, cos_y],
-        ];
+        let rotation_y = [[cos_y, 0.0, sin_y], [0.0, 1.0, 0.0], [-sin_y, 0.0, cos_y]];
 
         // Combine rotations
         let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
@@ -116,10 +106,8 @@ impl CubeWidget {
             }
         }
         for normal in vertex_normals.iter_mut() {
-            let length = (normal[0] * normal[0]
-                + normal[1] * normal[1]
-                + normal[2] * normal[2])
-                .sqrt();
+            let length =
+                (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
             normal[0] /= length;
             normal[1] /= length;
             normal[2] /= length;
@@ -177,14 +165,18 @@ impl Widget<AppState> for CubeWidget {
                             ctx.submit_command(commands::QUIT_APP);
                         }
                         "w" | "W" => {
-                            data.wireframe = !data.wireframe;
-                            ctx.request_paint();
+                            if !data.paused {
+                                data.wireframe = !data.wireframe;
+                                ctx.request_paint();
+                            }
                         }
                         "r" | "R" => {
-                            // Reset the zoom and translation to their initial values
-                            data.zoom = 1.0;
-                            data.translation = [0.0, 0.0];
-                            ctx.request_paint();
+                            if !data.paused {
+                                // Reset the zoom and translation to their initial values
+                                data.zoom = 1.0;
+                                data.translation = [0.0, 0.0];
+                                ctx.request_paint();
+                            }
                         }
                         _ => {}
                     }
@@ -307,15 +299,9 @@ impl Widget<AppState> for CubeWidget {
         if let LifeCycle::Size(size) = event {
             self.size = *size;
         }
-    }    
+    }
 
-    fn update(
-        &mut self,
-        _ctx: &mut UpdateCtx,
-        _old_data: &AppState,
-        _data: &AppState,
-        _env: &Env,
-    ) {
+    fn update(&mut self, _ctx: &mut UpdateCtx, _old_data: &AppState, _data: &AppState, _env: &Env) {
     }
 
     /// Determines the layout constraints for the cube widget
@@ -441,7 +427,12 @@ impl Widget<AppState> for CubeWidget {
 
         // Create and draw the image
         let image = ctx
-            .make_image(width, height, &pixel_data, druid::piet::ImageFormat::RgbaSeparate)
+            .make_image(
+                width,
+                height,
+                &pixel_data,
+                druid::piet::ImageFormat::RgbaSeparate,
+            )
             .unwrap();
         ctx.draw_image(&image, size.to_rect(), InterpolationMode::NearestNeighbor);
 
@@ -458,10 +449,7 @@ impl Widget<AppState> for CubeWidget {
             ctx.draw_text(&text_layout, (10.0, 10.0));
 
             // Draw angles
-            let text = format!(
-                "Angle X: {:.2}, Angle Y: {:.2}",
-                data.angle_x, data.angle_y
-            );
+            let text = format!("Angle X: {:.2}, Angle Y: {:.2}", data.angle_x, data.angle_y);
             let text_layout = ctx
                 .text()
                 .new_text_layout(text)
