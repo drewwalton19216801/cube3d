@@ -5,10 +5,12 @@ use crate::vertex::Vertex;
 use druid::kurbo::Point;
 use druid::text::FontFamily;
 use druid::widget::prelude::*;
+use druid::widget::{Controller, ControllerHost, Label};
+use druid::WidgetExt;
 use druid::{
     commands,
     piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
-    Color, RenderContext, Widget,
+    Color, RenderContext, Widget, WindowDesc,
 };
 use std::time::Instant;
 
@@ -184,6 +186,90 @@ impl Widget<AppState> for CubeWidget {
                                 data.wireframe = false;
                                 ctx.request_paint();
                             }
+                        }
+                        "h" | "H" => {
+                            let program_name = env!("CARGO_PKG_NAME");
+                            let program_version = env!("CARGO_PKG_VERSION");
+                            let program_authors = env!("CARGO_PKG_AUTHORS");
+
+                            let controls_text: &[&str] = &[
+                                "Controls:",
+                                " - H: Open this help window",
+                                " - Q: Quit the application",
+                                " - D: Toggle debug mode",
+                                " - P: Pause/unpause rotation",
+                                " - W: Toggle wireframe mode",
+                                " - R: Reset cube",
+                                " - Mouse Left Drag: Rotate cube",
+                                " - Mouse Right Drag: Translate cube",
+                                " - Mouse Wheel: Zoom in/out",
+                                "",
+                            ];
+
+                            // Assemble help text, putting multiple authors (if any) on separate lines
+                            let mut help_text = String::new();
+                            for line in controls_text {
+                                help_text.push_str(line);
+                                help_text.push('\n');
+                            }
+                            if !program_authors.is_empty() {
+                                help_text.push_str(&format!("Author(s): {}\n", program_authors));
+                            }
+                            help_text.push_str(&format!("Version: {}\n", program_version));
+
+                            struct CloseOnEsc;
+                            impl<W: Widget<AppState>> Controller<AppState, W> for CloseOnEsc {
+                                fn event(
+                                    &mut self,
+                                    child: &mut W,
+                                    ctx: &mut EventCtx,
+                                    event: &Event,
+                                    data: &mut AppState,
+                                    env: &Env,
+                                ) {
+                                    match event {
+                                        Event::WindowConnected => {
+                                            ctx.request_focus();
+                                        }
+                                        Event::KeyDown(key_event) => {
+                                            if let druid::keyboard_types::Key::Escape =
+                                                &key_event.key
+                                            {
+                                                ctx.window().close();
+                                                return;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                    child.event(ctx, event, data, env);
+                                }
+
+                                fn lifecycle(
+                                    &mut self,
+                                    child: &mut W,
+                                    ctx: &mut LifeCycleCtx,
+                                    event: &LifeCycle,
+                                    data: &AppState,
+                                    env: &Env,
+                                ) {
+                                    if let LifeCycle::WidgetAdded = event {
+                                        ctx.register_for_focus();
+                                    }
+                                    child.lifecycle(ctx, event, data, env);
+                                }
+                            }
+
+                            let help_widget = ControllerHost::new(
+                                Label::new(help_text).with_text_size(14.0).padding(10.0),
+                                CloseOnEsc,
+                            );
+
+                            let help_window = WindowDesc::new(help_widget)
+                                .title(format!("About {}", program_name).to_string())
+                                .resizable(false)
+                                .window_size((450.0, 300.0));
+
+                            ctx.new_window(help_window);
                         }
                         _ => {}
                     }
