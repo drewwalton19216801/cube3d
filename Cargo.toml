@@ -6,6 +6,7 @@ readme = "README.md"
 version = "0.5.4"
 edition = "2021"
 license = "MIT"
+authors = ["Drew Walton <drewwalton19216801@gmail.com>"]
 
 [dependencies]
 druid = "0.8.3"
