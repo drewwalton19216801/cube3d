@@ -22,6 +22,14 @@ A 3D cube renderer with per-pixel lighting using Rust and the Druid GUI framewor
 - **Rust:** Make sure you have Rust installed. You can download it from [rust-lang.org](https://www.rust-lang.org/tools/install).
 - **Cargo:** Comes bundled with Rust for package management and building.
 
+## Installing
+
+Install cube3d with cargo:
+
+```bash
+cargo install cube3d
+```
+
 ## Building
 
 Clone the repository and navigate to the project directory:
@@ -41,11 +49,16 @@ This will compile the project in release mode for optimal performance.
 
 ## Running
 
-Run the application with Cargo:
+Run the application with Cargo, or if you installed it above, run directly:
 
 ```bash
 cargo run --release
 ```
+
+```bash
+cube3d
+```
+
 ## Enabling Debug Mode
 
 To enable debug mode and display additional information, press the `d` key during program operation.
