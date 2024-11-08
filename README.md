@@ -59,6 +59,10 @@ cargo run --release
 cube3d
 ```
 
+## Help Text
+
+To display help text, pres the `h` key during program operation.
+
 ## Enabling Debug Mode
 
 To enable debug mode and display additional information, press the `d` key during program operation.
@@ -88,6 +92,10 @@ The project uses the following crates:
 * `druid`: A data-first Rust-native UI design toolkit.
 
 These dependencies are specified in `Cargo.toml` and will be automatically fetched when you build the project.
+
+## Compatibility
+
+`cube3d` is cross-platform and has been tested on Linux and Windows, and should also work on macOS.
 
 ## Learning Resources
 
