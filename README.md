@@ -21,6 +21,7 @@ A 3D cube renderer with per-pixel lighting using Rust and the Druid GUI framewor
 
 - **Rust:** Make sure you have Rust installed. You can download it from [rust-lang.org](https://www.rust-lang.org/tools/install).
 - **Cargo:** Comes bundled with Rust for package management and building.
+- **Linux only:** On Linux (and probably other *NIX platforms other than macOS), GTK+3 is required. On Ubuntu-based distros, `sudo apt-get install libgtk-3-dev` will suffice.
 
 ## Installing
 
