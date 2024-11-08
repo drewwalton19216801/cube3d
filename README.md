@@ -61,7 +61,7 @@ cube3d
 
 ## Help Text
 
-To display help text, pres the `h` key during program operation.
+To display help text, press the `h` key during program operation.
 
 ## Enabling Debug Mode
 
