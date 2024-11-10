@@ -1,5 +1,7 @@
 # cube3d
 
+[![Rust](https://github.com/drewwalton19216801/cube3d/actions/workflows/rust.yml/badge.svg)](https://github.com/drewwalton19216801/cube3d/actions/workflows/rust.yml)
+
 A 3D cube renderer with per-pixel lighting using Rust and the Druid GUI framework.
 
 ## Overview
