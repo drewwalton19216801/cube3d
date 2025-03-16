@@ -70,19 +70,20 @@ impl CubeWidget {
         // Combine rotations
         let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
 
-        // Transform and project vertices
-        let transformed_vertices: Vec<[f64; 3]> = vertices
-            .iter()
-            .map(|&(x, y, z)| {
-                let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
-                // Apply translation in 3D space
-                [
-                    rotated[0] + data.translation[0] / scale,
-                    rotated[1] + data.translation[1] / scale,
-                    rotated[2],
-                ]
-            })
-            .collect();
+        // First compute the rotated (untranslated) vertices for lighting
+        let mut rotated_vertices = Vec::new();
+        // Then compute the translated vertices for screen projection 
+        let mut transformed_vertices = Vec::new();
+        for &(x, y, z) in &vertices {
+            let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
+            rotated_vertices.push(rotated);
+            let transformed =  [
+                rotated[0] + data.translation[0] / scale,
+                rotated[1] + data.translation[1] / scale,
+                rotated[2],
+            ];
+            transformed_vertices.push(transformed);
+        }
 
         // Compute vertex normals
         let mut vertex_normals = vec![[0.0; 3]; vertices.len()];
@@ -116,14 +117,17 @@ impl CubeWidget {
         }
 
         // Create vertices with normals and screen positions
-        let vertices_with_normals: Vec<Vertex> = transformed_vertices
+        let vertices_with_normals: Vec<Vertex> = rotated_vertices
             .iter()
             .zip(vertex_normals.iter())
-            .map(|(&position, &normal)| {
-                let screen_x = position[0] * scale + center.x;
-                let screen_y = position[1] * scale + center.y;
+            .enumerate()
+            .map(|(i, (&rotated, &normal))| 
+            {
+                let transformed = transformed_vertices[i];
+                let screen_x = transformed[0] * scale + center.x;
+                let screen_y = transformed[1] * scale + center.y;
                 Vertex {
-                    position,
+                    position: rotated, // use the untranslated position for lighting
                     screen_position: [screen_x, screen_y],
                     normal,
                 }
@@ -152,13 +156,14 @@ impl Widget<AppState> for CubeWidget {
                 ctx.request_timer(std::time::Duration::from_millis(16));
             }
             Event::KeyDown(key_event) => {
+                // Handle key events
                 if let druid::keyboard_types::Key::Character(s) = &key_event.key {
                     match s.as_str() {
                         "d" | "D" => {
                             data.debug = !data.debug;
                             ctx.request_paint();
                         }
-                        "p" | "P" => {
+                        "p" | "P" | " " => {
                             data.paused = !data.paused;
                             // Reset any mouse events that were captured
                             self.last_mouse_pos = Point::ZERO;
@@ -197,7 +202,7 @@ impl Widget<AppState> for CubeWidget {
                                 " - H: Open this help window",
                                 " - Q: Quit the application",
                                 " - D: Toggle debug mode",
-                                " - P: Pause/unpause rotation",
+                                " - P: Pause/unpause rotation (can be toggled with space)",
                                 " - W: Toggle wireframe mode",
                                 " - R: Reset cube",
                                 " - Mouse Left Drag: Rotate cube",

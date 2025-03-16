@@ -72,7 +72,7 @@ To enable debug mode and display additional information, press the `d` key durin
 
 ## Pausing/Resuming
 
-To pause/resume the program, press the `p` key during program operation.
+To pause/resume the program, press the `p` or `space` key during program operation.
 
 ## Resetting Zoom and Translation
 
