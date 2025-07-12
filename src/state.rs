@@ -4,11 +4,11 @@ use druid::Data;
 #[derive(Clone, Data)]
 pub struct AppState {
     /// Current rotation angle around the X-axis
-    pub angle_x: f64,
+    pub angle_x: f32,
     /// Current rotation angle around the Y-axis
-    pub angle_y: f64,
+    pub angle_y: f32,
     /// Translation vector (x, y)
-    pub translation: [f64; 2],
+    pub translation: [f32; 2],
     /// Enable debug mode
     pub debug: bool,
     /// Simulation paused
@@ -16,7 +16,7 @@ pub struct AppState {
     /// Wireframe mode enabled
     pub wireframe: bool,
     /// Zoom level
-    pub zoom: f64,
+    pub zoom: f32,
     /// Light position in world space
-    pub light_position: [f64; 3],
+    pub light_position: [f32; 3],
 }
