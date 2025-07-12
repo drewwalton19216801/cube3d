@@ -1,4 +1,4 @@
-use crate::graphics::{draw_line, draw_triangle};
+use crate::graphics::{draw_line, draw_triangle, should_cull_triangle};
 use crate::math::{calculate_normal, multiply_matrices, multiply_matrix_vector, point_in_triangle};
 use crate::state::AppState;
 use crate::vertex::Vertex;
@@ -18,7 +18,7 @@ use std::time::Instant;
 pub struct CubeWidget {
     frames_since_last_update: usize,
     last_fps_calculation: Instant,
-    fps: f64,
+    fps: f32,
     /// Is the user currently dragging for rotation?
     dragging_rotation: bool,
     /// Is the user currently dragging for translation?
@@ -45,7 +45,7 @@ impl CubeWidget {
     /// Computes the projected vertices for the current state
     fn compute_projected_vertices(&self, data: &AppState) -> Vec<Vertex> {
         let center = Point::new(self.size.width / 2.0, self.size.height / 2.0);
-        let scale = (self.size.height.min(self.size.width) / 4.0) * data.zoom; // Adjusted scale
+        let scale = (self.size.height.min(self.size.width) / 4.0) * data.zoom as f64; // Adjusted scale
 
         // Define cube vertices
         let vertices = [
@@ -78,8 +78,8 @@ impl CubeWidget {
             let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
             rotated_vertices.push(rotated);
             let transformed =  [
-                rotated[0] + data.translation[0] / scale,
-                rotated[1] + data.translation[1] / scale,
+                rotated[0] + data.translation[0] / scale as f32,
+                rotated[1] + data.translation[1] / scale as f32,
                 rotated[2],
             ];
             transformed_vertices.push(transformed);
@@ -124,8 +124,8 @@ impl CubeWidget {
             .map(|(i, (&rotated, &normal))| 
             {
                 let transformed = transformed_vertices[i];
-                let screen_x = transformed[0] * scale + center.x;
-                let screen_y = transformed[1] * scale + center.y;
+                let screen_x = transformed[0] * scale as f32 + center.x as f32;
+                let screen_y = transformed[1] * scale as f32 + center.y as f32;
                 Vertex {
                     position: rotated, // use the untranslated position for lighting
                     screen_position: [screen_x, screen_y],
@@ -297,7 +297,7 @@ impl Widget<AppState> for CubeWidget {
                     ];
 
                     let mut clicked_inside_cube = false;
-                    let click_point = [mouse_event.pos.x, mouse_event.pos.y];
+                    let click_point = [mouse_event.pos.x as f32, mouse_event.pos.y as f32];
 
                     for &(a, b, c, d) in &faces {
                         // Triangle 1: a, b, c
@@ -305,10 +305,10 @@ impl Widget<AppState> for CubeWidget {
                         let v1 = &vertices_with_normals[b];
                         let v2 = &vertices_with_normals[c];
                         if point_in_triangle(
-                            click_point,
-                            v0.screen_position,
-                            v1.screen_position,
-                            v2.screen_position,
+                            &click_point,
+                            &v0.screen_position,
+                            &v1.screen_position,
+                            &v2.screen_position,
                         ) {
                             clicked_inside_cube = true;
                             break;
@@ -318,10 +318,10 @@ impl Widget<AppState> for CubeWidget {
                         let v1 = &vertices_with_normals[c];
                         let v2 = &vertices_with_normals[d];
                         if point_in_triangle(
-                            click_point,
-                            v0.screen_position,
-                            v1.screen_position,
-                            v2.screen_position,
+                            &click_point,
+                            &v0.screen_position,
+                            &v1.screen_position,
+                            &v2.screen_position,
                         ) {
                             clicked_inside_cube = true;
                             break;
@@ -347,15 +347,15 @@ impl Widget<AppState> for CubeWidget {
                     if self.dragging_rotation {
                         let delta = mouse_event.pos - self.last_mouse_pos;
                         // Update rotation angles based on mouse movement
-                        data.angle_x += delta.y * 0.01; // Adjust sensitivity as needed
-                        data.angle_y += delta.x * 0.01;
+                        data.angle_x += delta.y as f32 * 0.01; // Adjust sensitivity as needed
+                        data.angle_y += delta.x as f32 * 0.01;
                         self.last_mouse_pos = mouse_event.pos;
                         ctx.request_paint();
                     } else if self.dragging_translation {
                         let delta = mouse_event.pos - self.last_mouse_pos;
                         // Update translation based on mouse movement
-                        data.translation[0] += delta.x;
-                        data.translation[1] += delta.y;
+                        data.translation[0] += delta.x as f32;
+                        data.translation[1] += delta.y as f32;
                         self.last_mouse_pos = mouse_event.pos;
                         ctx.request_paint();
                     }
@@ -378,7 +378,7 @@ impl Widget<AppState> for CubeWidget {
             Event::Wheel(wheel_event) => {
                 if !data.paused {
                     let delta = wheel_event.wheel_delta.y;
-                    data.zoom *= 1.0 + delta * 0.001;
+                    data.zoom *= 1.0 + delta as f32 * 0.001;
                     data.zoom = data.zoom.clamp(0.1, 10.0); // Clamp zoom level
                     ctx.request_paint();
                 }
@@ -422,7 +422,7 @@ impl Widget<AppState> for CubeWidget {
         let now = Instant::now();
         let duration = now.duration_since(self.last_fps_calculation);
         if duration.as_secs_f64() >= 1.0 {
-            self.fps = self.frames_since_last_update as f64 / duration.as_secs_f64();
+            self.fps = self.frames_since_last_update as f32 / duration.as_secs_f64() as f32;
             self.frames_since_last_update = 0;
             self.last_fps_calculation = now;
         }
@@ -433,7 +433,7 @@ impl Widget<AppState> for CubeWidget {
 
         // Create pixel buffer and z-buffer
         let mut pixel_data = vec![0u8; width * height * 4];
-        let mut z_buffer = vec![std::f64::INFINITY; width * height];
+        let mut z_buffer = vec![std::f32::INFINITY; width * height];
 
         // Compute projected vertices
         let vertices_with_normals = self.compute_projected_vertices(data);
@@ -477,6 +477,10 @@ impl Widget<AppState> for CubeWidget {
         // Light source position in world space
         let light_pos_world = data.light_position;
 
+        // Initialize culling statistics
+        let mut triangles_drawn = 0;
+        let mut triangles_culled = 0;
+
         if data.wireframe {
             // Draw edges
             for &(start, end) in &edges {
@@ -494,32 +498,55 @@ impl Widget<AppState> for CubeWidget {
                 );
             }
         } else {
-            // Draw faces
+            // Draw faces with culling
+            
             for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
                 // Triangle 1: a, b, c
-                draw_triangle(
+                if !should_cull_triangle(
                     &vertices_with_normals[a],
                     &vertices_with_normals[b],
                     &vertices_with_normals[c],
-                    &mut pixel_data,
-                    &mut z_buffer,
                     width,
                     height,
-                    &light_pos_world,
-                    face_colors[face_index],
-                );
+                ) {
+                    draw_triangle(
+                        &vertices_with_normals[a],
+                        &vertices_with_normals[b],
+                        &vertices_with_normals[c],
+                        &mut pixel_data,
+                        &mut z_buffer,
+                        width,
+                        height,
+                        &light_pos_world,
+                        face_colors[face_index],
+                    );
+                    triangles_drawn += 1;
+                } else {
+                    triangles_culled += 1;
+                }
                 // Triangle 2: a, c, d
-                draw_triangle(
+                if !should_cull_triangle(
                     &vertices_with_normals[a],
                     &vertices_with_normals[c],
                     &vertices_with_normals[d],
-                    &mut pixel_data,
-                    &mut z_buffer,
                     width,
                     height,
-                    &light_pos_world,
-                    face_colors[face_index],
-                );
+                ) {
+                    draw_triangle(
+                        &vertices_with_normals[a],
+                        &vertices_with_normals[c],
+                        &vertices_with_normals[d],
+                        &mut pixel_data,
+                        &mut z_buffer,
+                        width,
+                        height,
+                        &light_pos_world,
+                        face_colors[face_index],
+                    );
+                    triangles_drawn += 1;
+                } else {
+                    triangles_culled += 1;
+                }
             }
         }
 
@@ -606,6 +633,19 @@ impl Widget<AppState> for CubeWidget {
                 .build()
                 .unwrap();
             ctx.draw_text(&text_layout, (10.0, 110.0));
+
+            // Draw culling statistics (only in non-wireframe mode)
+            if !data.wireframe {
+                let text = format!("Triangles: {} drawn, {} culled", triangles_drawn, triangles_culled);
+                let text_layout = ctx
+                    .text()
+                    .new_text_layout(text)
+                    .font(FontFamily::SYSTEM_UI, 12.0)
+                    .text_color(Color::WHITE)
+                    .build()
+                    .unwrap();
+                ctx.draw_text(&text_layout, (10.0, 130.0));
+            }
         }
 
         // Display 'Paused' if the simulation is paused
