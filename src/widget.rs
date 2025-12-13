@@ -1,5 +1,5 @@
 use crate::graphics::{draw_line, draw_triangle, should_cull_triangle};
-use crate::math::{calculate_normal, multiply_matrices, multiply_matrix_vector, point_in_triangle};
+use crate::math::{calculate_normal, multiply_matrices, multiply_matrix_vector, normalize, point_in_triangle};
 use crate::state::AppState;
 use crate::vertex::Vertex;
 use druid::kurbo::Point;
@@ -109,11 +109,7 @@ impl CubeWidget {
             }
         }
         for normal in vertex_normals.iter_mut() {
-            let length =
-                (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
-            normal[0] /= length;
-            normal[1] /= length;
-            normal[2] /= length;
+            *normal = normalize(normal);
         }
 
         // Create vertices with normals and screen positions
