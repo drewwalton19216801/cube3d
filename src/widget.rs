@@ -27,6 +27,12 @@ pub struct CubeWidget {
     last_mouse_pos: Point,
     /// Widget size
     size: Size,
+    /// Pre-allocated pixel buffer
+    pixel_buffer: Vec<u8>,
+    /// Pre-allocated z-buffer
+    z_buffer: Vec<f32>,
+    /// Current buffer dimensions (width, height)
+    buffer_dimensions: (usize, usize),
 }
 
 impl CubeWidget {
@@ -39,6 +45,9 @@ impl CubeWidget {
             dragging_translation: false,
             last_mouse_pos: Point::ZERO,
             size: Size::ZERO,
+            pixel_buffer: Vec::new(),
+            z_buffer: Vec::new(),
+            buffer_dimensions: (0, 0),
         }
     }
 
@@ -427,9 +436,16 @@ impl Widget<AppState> for CubeWidget {
         let width = size.width as usize;
         let height = size.height as usize;
 
-        // Create pixel buffer and z-buffer
-        let mut pixel_data = vec![0u8; width * height * 4];
-        let mut z_buffer = vec![std::f32::INFINITY; width * height];
+        // Resize buffers only if dimensions changed
+        if self.buffer_dimensions != (width, height) {
+            self.pixel_buffer.resize(width * height * 4, 0);
+            self.z_buffer.resize(width * height, std::f32::INFINITY);
+            self.buffer_dimensions = (width, height);
+        } else {
+            // Clear existing buffers
+            self.pixel_buffer.fill(0);
+            self.z_buffer.fill(std::f32::INFINITY);
+        }
 
         // Compute projected vertices
         let vertices_with_normals = self.compute_projected_vertices(data);
@@ -487,7 +503,7 @@ impl Widget<AppState> for CubeWidget {
                     v0.screen_position[1],
                     v1.screen_position[0],
                     v1.screen_position[1],
-                    &mut pixel_data,
+                    &mut self.pixel_buffer,
                     width,
                     height,
                     Color::WHITE,
@@ -509,8 +525,8 @@ impl Widget<AppState> for CubeWidget {
                         &vertices_with_normals[a],
                         &vertices_with_normals[b],
                         &vertices_with_normals[c],
-                        &mut pixel_data,
-                        &mut z_buffer,
+                        &mut self.pixel_buffer,
+                        &mut self.z_buffer,
                         width,
                         height,
                         &light_pos_world,
@@ -532,8 +548,8 @@ impl Widget<AppState> for CubeWidget {
                         &vertices_with_normals[a],
                         &vertices_with_normals[c],
                         &vertices_with_normals[d],
-                        &mut pixel_data,
-                        &mut z_buffer,
+                        &mut self.pixel_buffer,
+                        &mut self.z_buffer,
                         width,
                         height,
                         &light_pos_world,
@@ -551,7 +567,7 @@ impl Widget<AppState> for CubeWidget {
             .make_image(
                 width,
                 height,
-                &pixel_data,
+                &self.pixel_buffer,
                 druid::piet::ImageFormat::RgbaSeparate,
             )
             .unwrap();
