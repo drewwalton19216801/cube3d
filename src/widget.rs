@@ -12,6 +12,8 @@ use druid::{
     piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
     Color, RenderContext, Widget, WindowDesc,
 };
+use rayon::prelude::*;
+use std::sync::Mutex;
 use std::time::Instant;
 
 /// 3D cube widget
@@ -515,56 +517,93 @@ impl Widget<AppState> for CubeWidget {
                 );
             }
         } else {
-            // Draw faces with culling
+            // Draw faces with culling using parallel rasterization
             
-            for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
-                // Triangle 1: a, b, c
-                if !should_cull_triangle(
-                    &vertices_with_normals[a],
-                    &vertices_with_normals[b],
-                    &vertices_with_normals[c],
-                    width,
-                    height,
-                ) {
-                    draw_triangle(
+            // Wrap buffers in Mutex for thread-safe access
+            let pixel_buffer = Mutex::new(&mut self.pixel_buffer);
+            let z_buffer = Mutex::new(&mut self.z_buffer);
+            
+            // Collect triangles to render with their metadata
+            let triangles_to_render: Vec<_> = faces.iter().enumerate()
+                .flat_map(|(face_index, &(a, b, c, d))| {
+                    let mut tris = Vec::new();
+                    
+                    // Triangle 1: a, b, c
+                    if !should_cull_triangle(
                         &vertices_with_normals[a],
                         &vertices_with_normals[b],
                         &vertices_with_normals[c],
-                        &mut self.pixel_buffer,
-                        &mut self.z_buffer,
                         width,
                         height,
-                        &light_pos_world,
-                        face_colors[face_index],
-                    );
-                    triangles_drawn += 1;
-                } else {
-                    triangles_culled += 1;
-                }
-                // Triangle 2: a, c, d
-                if !should_cull_triangle(
-                    &vertices_with_normals[a],
-                    &vertices_with_normals[c],
-                    &vertices_with_normals[d],
-                    width,
-                    height,
-                ) {
-                    draw_triangle(
+                    ) {
+                        tris.push((
+                            vertices_with_normals[a].clone(),
+                            vertices_with_normals[b].clone(),
+                            vertices_with_normals[c].clone(),
+                            face_colors[face_index],
+                            true, // drawn
+                        ));
+                    } else {
+                        tris.push((
+                            vertices_with_normals[a].clone(),
+                            vertices_with_normals[b].clone(),
+                            vertices_with_normals[c].clone(),
+                            face_colors[face_index],
+                            false, // culled
+                        ));
+                    }
+                    
+                    // Triangle 2: a, c, d
+                    if !should_cull_triangle(
                         &vertices_with_normals[a],
                         &vertices_with_normals[c],
                         &vertices_with_normals[d],
-                        &mut self.pixel_buffer,
-                        &mut self.z_buffer,
+                        width,
+                        height,
+                    ) {
+                        tris.push((
+                            vertices_with_normals[a].clone(),
+                            vertices_with_normals[c].clone(),
+                            vertices_with_normals[d].clone(),
+                            face_colors[face_index],
+                            true, // drawn
+                        ));
+                    } else {
+                        tris.push((
+                            vertices_with_normals[a].clone(),
+                            vertices_with_normals[c].clone(),
+                            vertices_with_normals[d].clone(),
+                            face_colors[face_index],
+                            false, // culled
+                        ));
+                    }
+                    
+                    tris
+                })
+                .collect();
+            
+            // Render triangles in parallel
+            triangles_to_render.par_iter().for_each(|(v0, v1, v2, color, should_draw)| {
+                if *should_draw {
+                    let mut pixel_buf = pixel_buffer.lock().unwrap();
+                    let mut z_buf = z_buffer.lock().unwrap();
+                    draw_triangle(
+                        v0,
+                        v1,
+                        v2,
+                        &mut pixel_buf,
+                        &mut z_buf,
                         width,
                         height,
                         &light_pos_world,
-                        face_colors[face_index],
+                        *color,
                     );
-                    triangles_drawn += 1;
-                } else {
-                    triangles_culled += 1;
                 }
-            }
+            });
+            
+            // Count statistics
+            triangles_drawn = triangles_to_render.iter().filter(|(_, _, _, _, drawn)| *drawn).count();
+            triangles_culled = triangles_to_render.iter().filter(|(_, _, _, _, drawn)| !*drawn).count();
         }
 
         // Create and draw the image
