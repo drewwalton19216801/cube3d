@@ -446,11 +446,11 @@ impl Widget<AppState> for CubeWidget {
             self.pixel_buffer.resize(width * height * 4, 0);
             self.z_buffer.resize(width * height, std::f32::INFINITY);
             self.buffer_dimensions = (width, height);
-        } else {
-            // Clear existing buffers
-            self.pixel_buffer.fill(0);
-            self.z_buffer.fill(std::f32::INFINITY);
         }
+        
+        // Always clear buffers before rendering
+        self.pixel_buffer.fill(0);
+        self.z_buffer.fill(std::f32::INFINITY);
 
         // Compute projected vertices
         let vertices_with_normals = self.compute_projected_vertices(data);
