@@ -80,17 +80,22 @@ impl CubeWidget {
         let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
 
         // First compute the rotated (untranslated) vertices for lighting
-        let mut rotated_vertices = Vec::new();
-        // Then compute the translated vertices for screen projection 
-        let mut transformed_vertices = Vec::new();
+        let mut rotated_vertices = Vec::with_capacity(vertices.len());
+        // Then compute the translated vertices for screen projection
+        let mut transformed_vertices = Vec::with_capacity(vertices.len());
+        
+        // Hoist division out of loop
+        let translation_x = data.translation[0] / scale as f32;
+        let translation_y = data.translation[1] / scale as f32;
+        
         for &(x, y, z) in &vertices {
             let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
-            rotated_vertices.push(rotated);
-            let transformed =  [
-                rotated[0] + data.translation[0] / scale as f32,
-                rotated[1] + data.translation[1] / scale as f32,
+            let transformed = [
+                rotated[0] + translation_x,
+                rotated[1] + translation_y,
                 rotated[2],
             ];
+            rotated_vertices.push(rotated);
             transformed_vertices.push(transformed);
         }
 
