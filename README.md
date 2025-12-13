@@ -25,12 +25,12 @@ A high-performance 3D cube renderer with per-pixel lighting using Rust and the D
 The latest version includes significant performance improvements:
 
 - **f32 Precision:** Switched from f64 to f32 for 2-4x faster floating-point operations
-- **Fast Inverse Square Root:** Implements the Quake III algorithm for vector normalization
+- **SIMD Operations:** Uses the `glam` library for hardware-accelerated vector and matrix operations
 - **Function Inlining:** All mathematical functions are inlined to eliminate call overhead
-- **Matrix Operations:** Loop unrolling for 3x3 matrix operations
+- **Parallel Rasterization:** Uses `rayon` for multi-threaded triangle rendering
 - **Triangle Rasterization:** Early exit point-in-triangle test with optimized culling
 - **Memory Optimization:** Reduced allocations and improved cache locality
-- **SIMD-Friendly Code:** Optimized patterns for better CPU vectorization
+- **Pre-allocated Buffers:** Pixel and Z-buffers are pre-allocated and reused across frames
 
 ## Prerequisites
 
@@ -78,6 +78,7 @@ cube3d
 ## Controls
 
 ### Keyboard Controls
+
 - **H**: Display help information
 - **D**: Toggle debug mode (shows FPS, angles, light position)
 - **P/Space**: Pause/unpause rotation
@@ -86,6 +87,7 @@ cube3d
 - **Q**: Quit the application
 
 ### Mouse Controls
+
 - **Left Click + Drag**: Rotate the cube
 - **Right Click + Drag**: Translate the cube
 - **Mouse Wheel**: Zoom in/out
@@ -93,34 +95,42 @@ cube3d
 ## How It Works
 
 ### Core Rendering Pipeline
-* **3D Transformations:** Applies rotation matrices to simulate cube rotation around the X and Y axes.
-* **Rasterization:** Converts 3D triangles into pixels on the 2D screen using optimized edge functions.
-* **Depth Buffering:** Implements a Z-buffer to handle occlusion of faces.
-* **Per-Pixel Lighting:** Calculates lighting at each pixel by interpolating normals and positions, providing smooth shading.
+
+- **3D Transformations:** Applies rotation matrices to simulate cube rotation around the X and Y axes.
+
+- **Rasterization:** Converts 3D triangles into pixels on the 2D screen using optimized edge functions.
+- **Depth Buffering:** Implements a Z-buffer to handle occlusion of faces.
+- **Per-Pixel Lighting:** Calculates lighting at each pixel by interpolating normals and positions, providing smooth shading.
 
 ### Performance Features
-* **Optimized Math:** Uses f32 precision with inlined mathematical functions
-* **Fast Normalization:** Quake III fast inverse square root for vector operations
-* **Efficient Culling:** Back-face, viewport, and depth culling with early exits
-* **Memory Efficient:** Minimized allocations and cache-friendly access patterns
+
+- **Optimized Math:** Uses f32 precision with inlined mathematical functions and SIMD operations via `glam`
+
+- **Parallel Rendering:** Multi-threaded triangle rasterization using `rayon`
+- **Efficient Culling:** Back-face, viewport, and depth culling with early exits
+- **Memory Efficient:** Pre-allocated buffers and cache-friendly access patterns
 
 ## Dependencies
 
 The project uses the following crates:
 
-* `druid`: A data-first Rust-native UI design toolkit.
+- `druid`: A data-first Rust-native UI design toolkit for the GUI
+- `glam`: A simple and fast linear algebra library with SIMD support for vector and matrix operations
+- `rayon`: A data-parallelism library for multi-threaded triangle rasterization
 
-These dependencies are specified in `Cargo.toml` and will be automatically fetched when you build the project.
+These dependencies are specified in [`Cargo.toml`](Cargo.toml) and will be automatically fetched when you build the project.
 
 ## Performance Benchmarks
 
 The latest optimizations provide:
+
 - **2-4x faster floating-point operations** (f32 vs f64)
+- **Hardware-accelerated SIMD operations** (via `glam` library)
+- **Multi-threaded rendering** (parallel triangle rasterization with `rayon`)
 - **Significant reduction in function call overhead** (inlining)
-- **Better CPU cache utilization** (memory access patterns)
-- **Improved SIMD vectorization** (optimized code patterns)
-- **Faster triangle rasterization** (early exits and optimized tests)
-- **Reduced memory bandwidth** (smaller data types and fewer allocations)
+- **Better CPU cache utilization** (pre-allocated buffers and memory access patterns)
+- **Faster triangle rasterization** (early exits and optimized culling tests)
+- **Reduced memory bandwidth** (smaller data types and buffer reuse)
 
 ## Compatibility
 
@@ -128,16 +138,17 @@ The latest optimizations provide:
 
 ## Learning Resources
 
-* **Druid Documentation:** [Druid Book](https://linebender.org/druid/)
-* **Rust Programming Language:** [Rust Book](https://doc.rust-lang.org/book/)
-* **3D Graphics Basics:** [Learn OpenGL](https://learnopengl.com/)
-* **Performance Optimization:** [Rust Performance Book](https://nnethercote.github.io/perf-book/)
+- **Druid Documentation:** [Druid Book](https://linebender.org/druid/)
+- **Rust Programming Language:** [Rust Book](https://doc.rust-lang.org/book/)
+- **3D Graphics Basics:** [Learn OpenGL](https://learnopengl.com/)
+- **Performance Optimization:** [Rust Performance Book](https://nnethercote.github.io/perf-book/)
 
 ## Contributing
 
 Contributions are welcome! Feel free to submit a pull request or open an issue for suggestions and improvements.
 
 ### Development Workflow
+
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature-name`
 3. Make your changes
@@ -152,8 +163,10 @@ This project is licensed under the MIT License. See the [License](https://github
 
 ## Acknowledgements
 
-* Inspired by basic 3D rendering techniques.
-* Special thanks to the Rust community for their excellent resources.
-* Claude 3.5 Sonnet for the initial implementations.
-* GPT o1-preview for further improvements 
-* Cursor for further improvements and performance optimizations.
+- Inspired by basic 3D rendering techniques
+- Special thanks to the Rust community for their excellent resources
+- The `glam` library for fast SIMD-accelerated linear algebra operations
+- The `rayon` library for easy data parallelism
+- Claude 3.5 Sonnet for the initial implementations
+- GPT o1-preview for further improvements
+- Cursor for further improvements and performance optimizations
