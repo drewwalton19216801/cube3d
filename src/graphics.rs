@@ -1,4 +1,4 @@
-use crate::math::{apply_lighting, calculate_light_intensity, edge_function, point_in_triangle, normalize};
+use crate::math::{apply_lighting, calculate_light_intensity, edge_function, normalize};
 use crate::vertex::Vertex;
 use druid::Color;
 
@@ -99,13 +99,16 @@ pub fn draw_triangle(
             let py = y as f32 + 0.5;
             let p = [px, py];
 
-            // Use optimized point-in-triangle test
-            if point_in_triangle(&p, &v0.screen_position, &v1.screen_position, &v2.screen_position) {
-                // Inside triangle
-                let w0 = edge_function(&v1.screen_position, &v2.screen_position, &p);
-                let w1 = edge_function(&v2.screen_position, &v0.screen_position, &p);
-                let w2 = edge_function(&v0.screen_position, &v1.screen_position, &p);
+            // Calculate edge functions ONCE
+            let w0 = edge_function(&v1.screen_position, &v2.screen_position, &p);
+            let w1 = edge_function(&v2.screen_position, &v0.screen_position, &p);
+            let w2 = edge_function(&v0.screen_position, &v1.screen_position, &p);
 
+            // Check if inside triangle using pre-computed values
+            let inside = (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0) ||
+                         (w0 < 0.0 && w1 < 0.0 && w2 < 0.0);
+
+            if inside {
                 // Normalize barycentric coordinates
                 let w0 = w0 / area;
                 let w1 = w1 / area;
