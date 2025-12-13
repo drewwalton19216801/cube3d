@@ -1,4 +1,5 @@
 use druid::Color;
+use glam::{Vec3, Mat3};
 
 /// Edge function used in rasterization
 #[inline(always)]
@@ -27,84 +28,48 @@ pub fn point_in_triangle(p: &[f32; 2], a: &[f32; 2], b: &[f32; 2], c: &[f32; 2])
     }
 }
 
-/// Multiplies a 3x3 matrix by a 3-dimensional vector (unrolled for performance)
+/// Multiplies a 3x3 matrix by a 3-dimensional vector using SIMD
 #[inline(always)]
 pub fn multiply_matrix_vector(matrix: &[[f32; 3]; 3], vector: &[f32; 3]) -> [f32; 3] {
-    [
-        matrix[0][0] * vector[0] + matrix[0][1] * vector[1] + matrix[0][2] * vector[2],
-        matrix[1][0] * vector[0] + matrix[1][1] * vector[1] + matrix[1][2] * vector[2],
-        matrix[2][0] * vector[0] + matrix[2][1] * vector[1] + matrix[2][2] * vector[2],
-    ]
+    let mat = Mat3::from_cols_array_2d(matrix);
+    let vec = Vec3::from_array(*vector);
+    (mat * vec).to_array()
 }
 
-/// Multiplies two 3x3 matrices (unrolled for performance)
+/// Multiplies two 3x3 matrices using SIMD
 #[inline(always)]
 pub fn multiply_matrices(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
-    [
-        [
-            a[0][0] * b[0][0] + a[0][1] * b[1][0] + a[0][2] * b[2][0],
-            a[0][0] * b[0][1] + a[0][1] * b[1][1] + a[0][2] * b[2][1],
-            a[0][0] * b[0][2] + a[0][1] * b[1][2] + a[0][2] * b[2][2],
-        ],
-        [
-            a[1][0] * b[0][0] + a[1][1] * b[1][0] + a[1][2] * b[2][0],
-            a[1][0] * b[0][1] + a[1][1] * b[1][1] + a[1][2] * b[2][1],
-            a[1][0] * b[0][2] + a[1][1] * b[1][2] + a[1][2] * b[2][2],
-        ],
-        [
-            a[2][0] * b[0][0] + a[2][1] * b[1][0] + a[2][2] * b[2][0],
-            a[2][0] * b[0][1] + a[2][1] * b[1][1] + a[2][2] * b[2][1],
-            a[2][0] * b[0][2] + a[2][1] * b[1][2] + a[2][2] * b[2][2],
-        ],
-    ]
+    let mat_a = Mat3::from_cols_array_2d(a);
+    let mat_b = Mat3::from_cols_array_2d(b);
+    (mat_a * mat_b).to_cols_array_2d()
 }
 
-/// Fast inverse square root approximation (Quake III algorithm)
-#[inline(always)]
-fn fast_inv_sqrt(x: f32) -> f32 {
-    let x2 = x * 0.5;
-    let mut i = x.to_bits();
-    i = 0x5f3759df - (i >> 1);
-    let y = f32::from_bits(i);
-    y * (1.5 - x2 * y * y)
-}
-
-/// Calculates the normal vector of a triangle with fast normalization
+/// Calculates the normal vector of a triangle using SIMD
 #[inline(always)]
 pub fn calculate_normal(a: &[f32; 3], b: &[f32; 3], c: &[f32; 3]) -> [f32; 3] {
-    let ux = b[0] - a[0];
-    let uy = b[1] - a[1];
-    let uz = b[2] - a[2];
-    let vx = c[0] - a[0];
-    let vy = c[1] - a[1];
-    let vz = c[2] - a[2];
+    let va = Vec3::from_array(*a);
+    let vb = Vec3::from_array(*b);
+    let vc = Vec3::from_array(*c);
     
-    let nx = uy * vz - uz * vy;
-    let ny = uz * vx - ux * vz;
-    let nz = ux * vy - uy * vx;
+    let u = vb - va;
+    let v = vc - va;
     
-    let length_sq = nx * nx + ny * ny + nz * nz;
-    let inv_length = fast_inv_sqrt(length_sq);
-    
-    [nx * inv_length, ny * inv_length, nz * inv_length]
+    u.cross(v).normalize().to_array()
 }
 
-/// Calculates the light intensity based on the normal vector and light position
+/// Calculates the light intensity based on the normal vector and light position using SIMD
 #[inline(always)]
 pub fn calculate_light_intensity(
     normal: &[f32; 3],
     position: &[f32; 3],
     light_pos: &[f32; 3],
 ) -> f32 {
-    let dx = light_pos[0] - position[0];
-    let dy = light_pos[1] - position[1];
-    let dz = light_pos[2] - position[2];
+    let n = Vec3::from_array(*normal);
+    let p = Vec3::from_array(*position);
+    let l = Vec3::from_array(*light_pos);
     
-    let length_sq = dx * dx + dy * dy + dz * dz;
-    let inv_length = fast_inv_sqrt(length_sq);
-    
-    let dot_product = (normal[0] * dx + normal[1] * dy + normal[2] * dz) * inv_length;
-    dot_product.max(0.1) // Ensure a minimum ambient light
+    let light_dir = (l - p).normalize();
+    n.dot(light_dir).max(0.1) // Ensure a minimum ambient light
 }
 
 /// Applies lighting to a color (optimized with bit manipulation)
@@ -117,16 +82,8 @@ pub fn apply_lighting(color: &Color, intensity: f32) -> Color {
     Color::rgb8(r, g, b)
 }
 
-/// Vector length squared (faster than length when you only need to compare)
-#[inline(always)]
-pub fn length_squared(v: &[f32; 3]) -> f32 {
-    v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
-}
-
-/// Vector normalization using fast inverse square root
+/// Vector normalization using SIMD
 #[inline(always)]
 pub fn normalize(v: &[f32; 3]) -> [f32; 3] {
-    let length_sq = length_squared(v);
-    let inv_length = fast_inv_sqrt(length_sq);
-    [v[0] * inv_length, v[1] * inv_length, v[2] * inv_length]
+    Vec3::from_array(*v).normalize().to_array()
 }
