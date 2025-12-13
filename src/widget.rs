@@ -98,9 +98,9 @@ impl CubeWidget {
 
         for &(a, b, c, d) in faces.iter() {
             let normal = calculate_normal(
-                &transformed_vertices[a],
-                &transformed_vertices[b],
-                &transformed_vertices[c],
+                &rotated_vertices[a],
+                &rotated_vertices[b],
+                &rotated_vertices[c],
             );
             for &index in &[a, b, c, d] {
                 vertex_normals[index][0] += normal[0];
