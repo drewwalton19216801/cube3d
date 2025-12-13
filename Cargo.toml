@@ -19,7 +19,3 @@ lto = "fat"           # Link-time optimization
 codegen-units = 1     # Better optimization, slower compile
 panic = "abort"       # Smaller binary
 strip = true          # Remove debug symbols
-
-# Enable CPU-specific optimizations
-[target.'cfg(target_arch = "x86_64")']
-rustflags = ["-C", "target-cpu=native"]
