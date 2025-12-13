@@ -109,7 +109,7 @@ pub fn calculate_light_intensity(
 
 /// Applies lighting to a color (optimized with bit manipulation)
 #[inline(always)]
-pub fn apply_lighting(color: Color, intensity: f32) -> Color {
+pub fn apply_lighting(color: &Color, intensity: f32) -> Color {
     let rgba = color.as_rgba8();
     let r = ((rgba.0 as f32 * intensity).min(255.0) + 0.5) as u8;
     let g = ((rgba.1 as f32 * intensity).min(255.0) + 0.5) as u8;

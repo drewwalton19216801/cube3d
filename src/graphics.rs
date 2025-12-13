@@ -138,7 +138,7 @@ pub fn draw_triangle(
                     );
 
                     // Compute shaded color
-                    let shaded_color = apply_lighting(base_color.clone(), light_intensity);
+                    let shaded_color = apply_lighting(&base_color, light_intensity);
 
                     // Set pixel color
                     let pixel_offset = offset * 4;
