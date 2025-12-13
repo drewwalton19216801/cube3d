@@ -1,4 +1,4 @@
-use crate::math::{apply_lighting, calculate_light_intensity, edge_function, point_in_triangle, normalize};
+use crate::math::{apply_lighting, calculate_light_intensity, edge_function, normalize};
 use crate::vertex::Vertex;
 use druid::Color;
 
@@ -51,6 +51,22 @@ pub fn should_cull_triangle(v0: &Vertex, v1: &Vertex, v2: &Vertex, width: usize,
     should_backface_cull(v0, v1, v2)
 }
 
+/// Computes the screen-space bounding box of a triangle
+#[inline(always)]
+fn compute_triangle_bbox(
+    v0: &[f32; 2],
+    v1: &[f32; 2],
+    v2: &[f32; 2],
+    width: usize,
+    height: usize,
+) -> (usize, usize, usize, usize) {
+    let min_x = v0[0].min(v1[0]).min(v2[0]).floor().max(0.0) as usize;
+    let max_x = v0[0].max(v1[0]).max(v2[0]).ceil().min(width as f32 - 1.0) as usize;
+    let min_y = v0[1].min(v1[1]).min(v2[1]).floor().max(0.0) as usize;
+    let max_y = v0[1].max(v1[1]).max(v2[1]).ceil().min(height as f32 - 1.0) as usize;
+    (min_x, max_x, min_y, max_y)
+}
+
 /// Draws a triangle with per-pixel lighting
 pub fn draw_triangle(
     v0: &Vertex,
@@ -64,30 +80,13 @@ pub fn draw_triangle(
     base_color: Color,
 ) {
     // Compute bounding box of the triangle
-    let min_x = v0
-        .screen_position[0]
-        .min(v1.screen_position[0])
-        .min(v2.screen_position[0])
-        .floor()
-        .max(0.0) as usize;
-    let max_x = v0
-        .screen_position[0]
-        .max(v1.screen_position[0])
-        .max(v2.screen_position[0])
-        .ceil()
-        .min(width as f32 - 1.0) as usize;
-    let min_y = v0
-        .screen_position[1]
-        .min(v1.screen_position[1])
-        .min(v2.screen_position[1])
-        .floor()
-        .max(0.0) as usize;
-    let max_y = v0
-        .screen_position[1]
-        .max(v1.screen_position[1])
-        .max(v2.screen_position[1])
-        .ceil()
-        .min(height as f32 - 1.0) as usize;
+    let (min_x, max_x, min_y, max_y) = compute_triangle_bbox(
+        &v0.screen_position,
+        &v1.screen_position,
+        &v2.screen_position,
+        width,
+        height,
+    );
 
     // Precompute area of the triangle
     let area = edge_function(&v0.screen_position, &v1.screen_position, &v2.screen_position);
@@ -99,13 +98,16 @@ pub fn draw_triangle(
             let py = y as f32 + 0.5;
             let p = [px, py];
 
-            // Use optimized point-in-triangle test
-            if point_in_triangle(&p, &v0.screen_position, &v1.screen_position, &v2.screen_position) {
-                // Inside triangle
-                let w0 = edge_function(&v1.screen_position, &v2.screen_position, &p);
-                let w1 = edge_function(&v2.screen_position, &v0.screen_position, &p);
-                let w2 = edge_function(&v0.screen_position, &v1.screen_position, &p);
+            // Calculate edge functions ONCE
+            let w0 = edge_function(&v1.screen_position, &v2.screen_position, &p);
+            let w1 = edge_function(&v2.screen_position, &v0.screen_position, &p);
+            let w2 = edge_function(&v0.screen_position, &v1.screen_position, &p);
 
+            // Check if inside triangle using pre-computed values
+            let inside = (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0) ||
+                         (w0 < 0.0 && w1 < 0.0 && w2 < 0.0);
+
+            if inside {
                 // Normalize barycentric coordinates
                 let w0 = w0 / area;
                 let w1 = w1 / area;
@@ -135,7 +137,7 @@ pub fn draw_triangle(
                     );
 
                     // Compute shaded color
-                    let shaded_color = apply_lighting(base_color.clone(), light_intensity);
+                    let shaded_color = apply_lighting(&base_color, light_intensity);
 
                     // Set pixel color
                     let pixel_offset = offset * 4;

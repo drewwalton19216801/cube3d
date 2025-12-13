@@ -1,5 +1,5 @@
 use crate::graphics::{draw_line, draw_triangle, should_cull_triangle};
-use crate::math::{calculate_normal, multiply_matrices, multiply_matrix_vector, point_in_triangle};
+use crate::math::{calculate_normal, multiply_matrices, multiply_matrix_vector, normalize, point_in_triangle};
 use crate::state::AppState;
 use crate::vertex::Vertex;
 use druid::kurbo::Point;
@@ -12,6 +12,8 @@ use druid::{
     piet::{InterpolationMode, Text, TextLayout, TextLayoutBuilder},
     Color, RenderContext, Widget, WindowDesc,
 };
+use rayon::prelude::*;
+use std::sync::Mutex;
 use std::time::Instant;
 
 /// 3D cube widget
@@ -27,6 +29,12 @@ pub struct CubeWidget {
     last_mouse_pos: Point,
     /// Widget size
     size: Size,
+    /// Pre-allocated pixel buffer
+    pixel_buffer: Vec<u8>,
+    /// Pre-allocated z-buffer
+    z_buffer: Vec<f32>,
+    /// Current buffer dimensions (width, height)
+    buffer_dimensions: (usize, usize),
 }
 
 impl CubeWidget {
@@ -39,6 +47,9 @@ impl CubeWidget {
             dragging_translation: false,
             last_mouse_pos: Point::ZERO,
             size: Size::ZERO,
+            pixel_buffer: Vec::new(),
+            z_buffer: Vec::new(),
+            buffer_dimensions: (0, 0),
         }
     }
 
@@ -71,17 +82,22 @@ impl CubeWidget {
         let rotation_matrix = multiply_matrices(&rotation_y, &rotation_x);
 
         // First compute the rotated (untranslated) vertices for lighting
-        let mut rotated_vertices = Vec::new();
-        // Then compute the translated vertices for screen projection 
-        let mut transformed_vertices = Vec::new();
+        let mut rotated_vertices = Vec::with_capacity(vertices.len());
+        // Then compute the translated vertices for screen projection
+        let mut transformed_vertices = Vec::with_capacity(vertices.len());
+        
+        // Hoist division out of loop
+        let translation_x = data.translation[0] / scale as f32;
+        let translation_y = data.translation[1] / scale as f32;
+        
         for &(x, y, z) in &vertices {
             let rotated = multiply_matrix_vector(&rotation_matrix, &[x, y, z]);
-            rotated_vertices.push(rotated);
-            let transformed =  [
-                rotated[0] + data.translation[0] / scale as f32,
-                rotated[1] + data.translation[1] / scale as f32,
+            let transformed = [
+                rotated[0] + translation_x,
+                rotated[1] + translation_y,
                 rotated[2],
             ];
+            rotated_vertices.push(rotated);
             transformed_vertices.push(transformed);
         }
 
@@ -98,9 +114,9 @@ impl CubeWidget {
 
         for &(a, b, c, d) in faces.iter() {
             let normal = calculate_normal(
-                &transformed_vertices[a],
-                &transformed_vertices[b],
-                &transformed_vertices[c],
+                &rotated_vertices[a],
+                &rotated_vertices[b],
+                &rotated_vertices[c],
             );
             for &index in &[a, b, c, d] {
                 vertex_normals[index][0] += normal[0];
@@ -109,11 +125,7 @@ impl CubeWidget {
             }
         }
         for normal in vertex_normals.iter_mut() {
-            let length =
-                (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
-            normal[0] /= length;
-            normal[1] /= length;
-            normal[2] /= length;
+            *normal = normalize(normal);
         }
 
         // Create vertices with normals and screen positions
@@ -431,9 +443,16 @@ impl Widget<AppState> for CubeWidget {
         let width = size.width as usize;
         let height = size.height as usize;
 
-        // Create pixel buffer and z-buffer
-        let mut pixel_data = vec![0u8; width * height * 4];
-        let mut z_buffer = vec![std::f32::INFINITY; width * height];
+        // Resize buffers only if dimensions changed
+        if self.buffer_dimensions != (width, height) {
+            self.pixel_buffer.resize(width * height * 4, 0);
+            self.z_buffer.resize(width * height, std::f32::INFINITY);
+            self.buffer_dimensions = (width, height);
+        }
+        
+        // Always clear buffers before rendering
+        self.pixel_buffer.fill(0);
+        self.z_buffer.fill(std::f32::INFINITY);
 
         // Compute projected vertices
         let vertices_with_normals = self.compute_projected_vertices(data);
@@ -491,63 +510,100 @@ impl Widget<AppState> for CubeWidget {
                     v0.screen_position[1],
                     v1.screen_position[0],
                     v1.screen_position[1],
-                    &mut pixel_data,
+                    &mut self.pixel_buffer,
                     width,
                     height,
                     Color::WHITE,
                 );
             }
         } else {
-            // Draw faces with culling
+            // Draw faces with culling using parallel rasterization
             
-            for (face_index, &(a, b, c, d)) in faces.iter().enumerate() {
-                // Triangle 1: a, b, c
-                if !should_cull_triangle(
-                    &vertices_with_normals[a],
-                    &vertices_with_normals[b],
-                    &vertices_with_normals[c],
-                    width,
-                    height,
-                ) {
-                    draw_triangle(
+            // Wrap buffers in Mutex for thread-safe access
+            let pixel_buffer = Mutex::new(&mut self.pixel_buffer);
+            let z_buffer = Mutex::new(&mut self.z_buffer);
+            
+            // Collect triangles to render with their metadata
+            let triangles_to_render: Vec<_> = faces.iter().enumerate()
+                .flat_map(|(face_index, &(a, b, c, d))| {
+                    let mut tris = Vec::new();
+                    
+                    // Triangle 1: a, b, c
+                    if !should_cull_triangle(
                         &vertices_with_normals[a],
                         &vertices_with_normals[b],
                         &vertices_with_normals[c],
-                        &mut pixel_data,
-                        &mut z_buffer,
                         width,
                         height,
-                        &light_pos_world,
-                        face_colors[face_index],
-                    );
-                    triangles_drawn += 1;
-                } else {
-                    triangles_culled += 1;
-                }
-                // Triangle 2: a, c, d
-                if !should_cull_triangle(
-                    &vertices_with_normals[a],
-                    &vertices_with_normals[c],
-                    &vertices_with_normals[d],
-                    width,
-                    height,
-                ) {
-                    draw_triangle(
+                    ) {
+                        tris.push((
+                            vertices_with_normals[a].clone(),
+                            vertices_with_normals[b].clone(),
+                            vertices_with_normals[c].clone(),
+                            face_colors[face_index],
+                            true, // drawn
+                        ));
+                    } else {
+                        tris.push((
+                            vertices_with_normals[a].clone(),
+                            vertices_with_normals[b].clone(),
+                            vertices_with_normals[c].clone(),
+                            face_colors[face_index],
+                            false, // culled
+                        ));
+                    }
+                    
+                    // Triangle 2: a, c, d
+                    if !should_cull_triangle(
                         &vertices_with_normals[a],
                         &vertices_with_normals[c],
                         &vertices_with_normals[d],
-                        &mut pixel_data,
-                        &mut z_buffer,
+                        width,
+                        height,
+                    ) {
+                        tris.push((
+                            vertices_with_normals[a].clone(),
+                            vertices_with_normals[c].clone(),
+                            vertices_with_normals[d].clone(),
+                            face_colors[face_index],
+                            true, // drawn
+                        ));
+                    } else {
+                        tris.push((
+                            vertices_with_normals[a].clone(),
+                            vertices_with_normals[c].clone(),
+                            vertices_with_normals[d].clone(),
+                            face_colors[face_index],
+                            false, // culled
+                        ));
+                    }
+                    
+                    tris
+                })
+                .collect();
+            
+            // Render triangles in parallel
+            triangles_to_render.par_iter().for_each(|(v0, v1, v2, color, should_draw)| {
+                if *should_draw {
+                    let mut pixel_buf = pixel_buffer.lock().unwrap();
+                    let mut z_buf = z_buffer.lock().unwrap();
+                    draw_triangle(
+                        v0,
+                        v1,
+                        v2,
+                        &mut pixel_buf,
+                        &mut z_buf,
                         width,
                         height,
                         &light_pos_world,
-                        face_colors[face_index],
+                        *color,
                     );
-                    triangles_drawn += 1;
-                } else {
-                    triangles_culled += 1;
                 }
-            }
+            });
+            
+            // Count statistics
+            triangles_drawn = triangles_to_render.iter().filter(|(_, _, _, _, drawn)| *drawn).count();
+            triangles_culled = triangles_to_render.iter().filter(|(_, _, _, _, drawn)| !*drawn).count();
         }
 
         // Create and draw the image
@@ -555,7 +611,7 @@ impl Widget<AppState> for CubeWidget {
             .make_image(
                 width,
                 height,
-                &pixel_data,
+                &self.pixel_buffer,
                 druid::piet::ImageFormat::RgbaSeparate,
             )
             .unwrap();
